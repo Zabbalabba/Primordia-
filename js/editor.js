@@ -557,7 +557,9 @@ export class Editor {
   }
 
   draw(t) {
-    if (!this.cw) this.resize();
+    // Re-measure if the layout changed without a resize event (see Renderer.fitToScreen).
+    const box = this.canvas.getBoundingClientRect();
+    if (!this.cw || Math.abs(box.width - this.cw) > 0.5 || Math.abs(box.height - this.ch) > 0.5) this.resize();
     const ctx = this.ctx;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, this.cw, this.ch);

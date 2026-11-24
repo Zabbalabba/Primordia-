@@ -181,6 +181,10 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
   #minimap { width: 124px; height: 124px; }
   #toasts { top: auto; bottom: calc(70px + env(safe-area-inset-bottom, 0px)); width: calc(100% - 24px); }
 }
+@media (max-width: 520px) {
+  /* The action buttons wrap to two rows here; keep toasts above them. */
+  #toasts { bottom: calc(128px + env(safe-area-inset-bottom, 0px)); }
+}
 @media (max-width: 480px) {
   .vitals { width: 190px; padding: 8px 10px; }
   .erapanel { width: 132px; padding: 8px; }

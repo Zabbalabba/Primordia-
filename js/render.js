@@ -46,6 +46,7 @@ export class Renderer {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const w = this.canvas.clientWidth || window.innerWidth;
     const h = this.canvas.clientHeight || window.innerHeight;
+    this.dprSeen = window.devicePixelRatio || 1;
     this.canvas.width = Math.round(w * dpr);
     this.canvas.height = Math.round(h * dpr);
     this.dpr = dpr;
@@ -124,7 +125,19 @@ export class Renderer {
     }
   }
 
+  /**
+   * Phones (iOS home-screen apps in particular) can settle on their final
+   * screen size after launch without firing a resize event. Check every
+   * frame so the drawing never gets stretched to fit.
+   */
+  fitToScreen() {
+    const cw = this.canvas.clientWidth;
+    const ch = this.canvas.clientHeight;
+    if (cw && ch && (cw !== this.w || ch !== this.h || (window.devicePixelRatio || 1) !== this.dprSeen)) this.resize();
+  }
+
   render() {
+    this.fitToScreen();
     const ctx = this.ctx;
     const w = this.w;
     const h = this.h;

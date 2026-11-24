@@ -461,9 +461,15 @@ for (const el of document.querySelectorAll('[data-close]')) {
     else setMode('play');
   });
 }
-window.addEventListener('resize', () => {
+function onScreenChange() {
   state.renderer?.resize();
   if (editor.open_) editor.resize();
+}
+window.addEventListener('resize', onScreenChange);
+window.addEventListener('orientationchange', () => setTimeout(onScreenChange, 250));
+window.visualViewport?.addEventListener('resize', onScreenChange);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) onScreenChange();
 });
 
 // ---------------------------------------------------------------- loop
