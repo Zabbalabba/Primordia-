@@ -5,9 +5,9 @@
 // bought this division, 'up' an inherited eye evolved with DNA (upFrom holds
 // its old type). A part with mutFrom is an inherited eye evolved by mutation.
 
-import { PARTS, CATEGORIES, PART_IDS } from './parts.js';
-import { cloneGenome, phenotype, canAddPart, placeAngleFor, normAngle, SIZE_MIN, SIZE_MAX, countParts } from './genome.js';
-import { drawCell, drawPartIcon } from './cellDraw.js';
+import { PARTS, CATEGORIES, PART_IDS, partAllowed, EUKARYOTE_UNLOCKS } from './parts.js';
+import { cloneGenome, phenotype, canAddPart, placeAngleFor, normAngle, countParts, sizeLimits, eukaryotize } from './genome.js';
+import { drawCell, drawPartIcon, organellePositions, bodyShape, MEMBRANE_PARTS } from './cellDraw.js';
 import { habitatFit } from './biology.js';
 import { BIOMES, BIOME_IDS, ERAS } from './environment.js';
 import { angleDiff, clamp, TAU } from './util.js';
@@ -17,11 +17,12 @@ const $ = (id) => document.getElementById(id);
 const UP = -Math.PI / 2;
 const SIZE_COST = 40; // DNA per 1.0 of size change
 const MEM_COST = 30;
+const SHAPE_COST = 12;
 const ZOOM_MIN = 0.6;
 const ZOOM_MAX = 4;
 const DEFAULT_HINT = 'Tap a part on the left and then the membrane to place it, or use + to add one. Drag parts to move them. Pinch, scroll or use the buttons to zoom.';
 
-const isHad = (p) => p.o === 'orig' || p.o === 'up' || !!p.mutFrom;
+const isHad = (p) => p.o === 'orig' || p.o === 'up' || p.o === 'sym' || !!p.mutFrom;
 
 /** Human-readable direction of a part, e.g. "front-right, 30°". */
 export function positionLabel(a) {
@@ -68,6 +69,10 @@ export class Editor {
       this.draft.membrane = Number(e.target.value);
       this.refresh();
     });
+    $('ed-shape').addEventListener('input', (e) => {
+      this.draft.shape = Number(e.target.value);
+      this.refresh();
+    });
     $('ed-hue').addEventListener('input', (e) => {
       this.draft.hue = Number(e.target.value);
       this.drawPaletteIcons();
@@ -81,7 +86,14 @@ export class Editor {
     const p = world.player;
     this.orig = cloneGenome(p.genome);
     this.origPh = phenotype(this.orig);
-    this.offers = world.pressures.generateOffers(p.genome, world.rng, 3);
+    // A guest bacterium inside can become a permanent partner.
+    this.guest = p.guest && ((p.guest === 'mito' && !p.ph.euk) || (p.guest === 'cyano' && p.ph.euk)) ? p.guest : null;
+    // Mutations suit the body they apply to: a complex cell gets its own set.
+    this.offerSets = {
+      base: world.pressures.generateOffers(p.genome, world.rng, 3, world.progress),
+      euk: this.guest === 'mito' ? world.pressures.generateOffers(eukaryotize(p.genome), world.rng, 3, world.progress) : null,
+    };
+    this.symbiosisOn = !!this.guest;
     this.lineageCauses = { ...(world.lineageCauses || {}) };
     this.prepareForecast();
     this.zoom = 1;
@@ -109,15 +121,58 @@ export class Editor {
   reset() {
     this.draft = cloneGenome(this.orig);
     for (const p of this.draft.parts) p.o = 'orig';
-    this.baseSize = this.orig.size;
-    this.baseMem = this.orig.membrane;
+    if (this.symbiosisOn) this.applySymbiosis();
+    this.baseSize = this.startSize = this.draft.size;
+    this.baseMem = this.startMem = this.draft.membrane;
+    this.baseShape = this.draft.shape || 0;
     this.chosen = -1;
+    this.offers = this.symbiosisOn && this.offerSets.euk ? this.offerSets.euk : this.offerSets.base;
+    this.renderSymbiosis();
     this.selected = null;
     this.placing = null;
     this.renderOffers();
     this.renderPalette();
     this.hint(null);
     this.refresh();
+  }
+
+  applySymbiosis() {
+    if (this.guest === 'mito') {
+      const g = eukaryotize(this.draft);
+      // eukaryotize() appends the new mitochondrion last.
+      g.parts.forEach((p, i) => (p.o = i === g.parts.length - 1 ? 'sym' : 'orig'));
+      this.draft = g;
+    } else if (this.guest === 'cyano') {
+      this.draft.parts.push({ t: 'chloroplast', a: 0, o: 'sym' });
+    }
+  }
+
+  renderSymbiosis() {
+    const box = $('ed-symbiosis');
+    if (!this.guest) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    const mito = this.guest === 'mito';
+    box.innerHTML = '';
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'symbiosis';
+    b.setAttribute('aria-pressed', String(this.symbiosisOn));
+    b.innerHTML = mito
+      ? `<span class="sym-tag">Endosymbiosis</span><span class="sym-title">Keep the aerobic bacterium as a partner</span><span class="sym-text">It becomes your first mitochondrion, and your lineage becomes a <b>complex cell</b>: larger, with a nucleus, a cytoskeleton and new parts (pseudopods, cilia, food vacuoles, eyes). Bacterial pili are lost. This is how complex life began, about two billion years ago.</span>`
+      : `<span class="sym-tag">Endosymbiosis</span><span class="sym-title">Keep the cyanobacterium as a chloroplast</span><span class="sym-text">The photosynthetic bacterium you swallowed survived. Kept as a partner, it becomes a chloroplast: strong photosynthesis, as in all algae and plants.</span>`;
+    const state = document.createElement('span');
+    state.className = 'sym-state';
+    state.textContent = this.symbiosisOn ? 'Partner kept · free' : 'Tap to keep it';
+    b.appendChild(state);
+    b.addEventListener('click', () => {
+      this.symbiosisOn = !this.symbiosisOn;
+      this.reset();
+      this.hint(this.symbiosisOn ? 'The partner is kept. Other edits were reset.' : 'Without the partner, it will be lost when you divide. Other edits were reset.');
+    });
+    box.appendChild(b);
   }
 
   prepareForecast() {
@@ -205,12 +260,12 @@ export class Editor {
       }
     }
     if (prev && prev.kind === 'size') {
-      if (Math.abs(this.draft.size - this.baseSize) < 0.001) this.draft.size = this.orig.size;
-      this.baseSize = this.orig.size;
+      if (Math.abs(this.draft.size - this.baseSize) < 0.001) this.draft.size = this.startSize;
+      this.baseSize = this.startSize;
     }
     if (prev && prev.kind === 'membrane') {
-      if (Math.abs(this.draft.membrane - this.baseMem) < 0.001) this.draft.membrane = this.orig.membrane;
-      this.baseMem = this.orig.membrane;
+      if (Math.abs(this.draft.membrane - this.baseMem) < 0.001) this.draft.membrane = this.startMem;
+      this.baseMem = this.startMem;
     }
     this.chosen = i;
     const o = this.offers[i];
@@ -234,11 +289,12 @@ export class Editor {
           cands[0].t = o.to;
         }
       } else if (o.kind === 'size') {
-        const nb = clamp(this.orig.size + o.delta, SIZE_MIN, SIZE_MAX);
+        const [slo, shi] = sizeLimits(this.draft);
+        const nb = clamp(this.startSize + o.delta, slo, shi);
         if (Math.abs(this.draft.size - this.baseSize) < 0.001) this.draft.size = nb;
         this.baseSize = nb;
       } else if (o.kind === 'membrane') {
-        const nb = clamp(this.orig.membrane + o.delta, 0, 1);
+        const nb = clamp(this.startMem + o.delta, 0, 1);
         if (Math.abs(this.draft.membrane - this.baseMem) < 0.001) this.draft.membrane = nb;
         this.baseMem = nb;
       }
@@ -295,7 +351,10 @@ export class Editor {
   }
 
   isLocked(id) {
-    return !this.world.progress.unlocked.has(id) && !this.draft.parts.some((p) => p.t === id && (p.o === 'mut' || p.mutFrom));
+    if (!partAllowed(id, this.draft.domain)) return true;
+    // Becoming a complex cell opens its starter parts in the same division.
+    if (this.symbiosisOn && this.guest === 'mito' && EUKARYOTE_UNLOCKS.includes(id)) return false;
+    return !this.world.progress.unlocked.has(id) && !this.draft.parts.some((p) => p.t === id && (p.o === 'mut' || p.o === 'sym' || p.mutFrom));
   }
 
   /** How many of this part the cell had before this division (the minus floor). */
@@ -313,7 +372,19 @@ export class Editor {
       el.tile.classList.toggle('pricey', !locked && PARTS[id].dna > left);
       el.main.setAttribute('aria-pressed', String(this.placing === id));
       const from = PARTS[id].evolvesFrom;
-      el.sub.textContent = locked ? (from ? `Evolves from ${PARTS[from].name.toLowerCase()}` : 'Locked') : PARTS[id].effect;
+      const complexOnly = !partAllowed(id, this.draft.domain);
+      el.tile.classList.toggle('complex-only', complexOnly);
+      el.sub.textContent = !locked
+        ? PARTS[id].effect
+        : complexOnly
+          ? PARTS[id].domain === 'pro'
+            ? 'Simple cells only'
+            : 'Complex cells only'
+          : PARTS[id].symbiont
+            ? 'Only through endosymbiosis'
+            : from
+              ? `Evolves from ${PARTS[from].name.toLowerCase()}`
+              : 'Locked';
       el.count.textContent = c[id];
       el.count.title = `${c[id]} of ${PARTS[id].max}`;
       el.minus.disabled = c[id] <= this.floorOf(id);
@@ -355,6 +426,18 @@ export class Editor {
   pickPart(id) {
     if (this.isLocked(id)) {
       const from = PARTS[id].evolvesFrom;
+      if (!partAllowed(id, this.draft.domain) && PARTS[id].domain === 'pro') {
+        this.hint(`${PARTS[id].name} belong to bacteria. Complex cells move with cilia, pseudopods or a whip-like flagellum instead.`);
+        return;
+      }
+      if (!partAllowed(id, this.draft.domain)) {
+        this.hint(`${PARTS[id].name} needs a complex cell. Simple cells become complex through endosymbiosis: keep an aerobic bacterium that slips inside you.`);
+        return;
+      }
+      if (PARTS[id].symbiont) {
+        this.hint(`${PARTS[id].name}s come from bacteria living inside you. ${id === 'chloroplast' ? 'Engulf a photosynthetic bacterium; one may survive inside you.' : ''}`);
+        return;
+      }
       this.hint(
         from
           ? `${PARTS[id].name} evolves from an ${PARTS[from].name.toLowerCase()}. Live one generation with an ${PARTS[from].name.toLowerCase()} and you can upgrade it, or wait for the mutation.`
@@ -393,7 +476,10 @@ export class Editor {
   }
 
   get R() {
-    return Math.min(this.cw, this.ch) * 0.115 * (0.8 + 0.2 * this.draft.size) * this.zoom;
+    const s = this.draft.size;
+    // Simple cells are tiny; draw them a little bigger so they stay editable.
+    const k = this.draft.domain === 'euk' ? 0.95 + 0.1 * s : 1.0 + 0.2 * s;
+    return Math.min(this.cw, this.ch) * 0.13 * k * this.zoom;
   }
 
   get center() {
@@ -432,9 +518,24 @@ export class Editor {
 
   anchorOf(p) {
     const R = this.R;
-    const sa = UP + p.a;
-    const reach = p.t === 'flagellum' ? 1.8 : p.t === 'spike' ? 1.35 : PARTS[p.t].eye ? 0.8 : 1.05;
-    return { x: Math.cos(sa) * R * reach, y: Math.sin(sa) * R * reach };
+    const { ex, ey } = bodyShape(this.draft);
+    const reach = p.t === 'flagellum' ? 1.8 : p.t === 'rotor' ? 2.2 : p.t === 'spike' ? 1.35 : PARTS[p.t].eye ? 0.8 : 1.05;
+    // Local frame: x forward. On screen the front points up.
+    const lx = Math.cos(p.a) * R * ex * reach;
+    const ly = Math.sin(p.a) * R * ey * reach;
+    return lyRot(lx, ly);
+  }
+
+  /** Where a part type sits on the drawn cell, for interaction links. */
+  pointOf(t) {
+    const R = this.R;
+    const { ex, ey } = bodyShape(this.draft);
+    const part = this.draft.parts.find((p) => p.t === t);
+    if (!part) return null;
+    if (PARTS[t].ext) return this.anchorOf(part);
+    if (MEMBRANE_PARTS.has(t)) return lyRot(R * ex * 0.95, 0);
+    const o = organellePositions(this.draft, R).find((q) => q.t === t);
+    return o ? lyRot(o.x * ex * 0.95, o.y * ey * 0.95) : null;
   }
 
   /** All external parts under a point, nearest first. */
@@ -594,6 +695,37 @@ export class Editor {
     }
     drawCell(ctx, this.draft, R, { x: cx, y: cy, heading: UP, thrustLevel: 0.45, biteAnim: (Math.sin(t * 3) + 1) * 0.25, phase: 1, look: UP }, t, { detail: true });
 
+    // Interaction links: glowing arcs between parts that work together.
+    const ph = this.ph || phenotype(this.draft);
+    ctx.globalCompositeOperation = 'lighter';
+    ph.links.forEach((l, i) => {
+      const aT = l.a.find((x) => this.draft.parts.some((p) => p.t === x));
+      const bT = l.b.find((x) => this.draft.parts.some((p) => p.t === x));
+      const A = aT && this.pointOf(aT);
+      const B = bT && this.pointOf(bT);
+      if (!A || !B) return;
+      const col = l.good ? '61, 255, 226' : '255, 194, 74';
+      const mx = (A.x + B.x) / 2 + (B.y - A.y) * 0.25;
+      const my = (A.y + B.y) / 2 - (B.x - A.x) * 0.25;
+      ctx.strokeStyle = `rgba(${col}, 0.35)`;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash(l.good ? [] : [3, 4]);
+      ctx.beginPath();
+      ctx.moveTo(cx + A.x, cy + A.y);
+      ctx.quadraticCurveTo(cx + mx, cy + my, cx + B.x, cy + B.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // A spark travelling along the link.
+      const k = (t * 0.6 + i * 0.37) % 1;
+      const qx = (1 - k) * (1 - k) * A.x + 2 * (1 - k) * k * mx + k * k * B.x;
+      const qy = (1 - k) * (1 - k) * A.y + 2 * (1 - k) * k * my + k * k * B.y;
+      ctx.fillStyle = `rgba(${col}, 0.9)`;
+      ctx.beginPath();
+      ctx.arc(cx + qx, cy + qy, 2.2, 0, TAU);
+      ctx.fill();
+    });
+    ctx.globalCompositeOperation = 'source-over';
+
     if (sel && PARTS[sel.t].ext) {
       const a = this.anchorOf(sel);
       ctx.strokeStyle = '#3dffe2';
@@ -628,10 +760,19 @@ export class Editor {
     }
     c += Math.round(Math.abs(this.draft.size - this.baseSize) * SIZE_COST);
     c += Math.round(Math.abs(this.draft.membrane - this.baseMem) * MEM_COST);
+    c += Math.round(Math.abs((this.draft.shape || 0) - this.baseShape) * SHAPE_COST);
     return c;
   }
 
   refresh() {
+    const [lo, hi] = sizeLimits(this.draft);
+    $('ed-size').min = lo;
+    $('ed-size').max = hi;
+    this.draft.size = clamp(this.draft.size, lo, hi);
+    const pro = this.draft.domain !== 'euk';
+    $('ed-shape-wrap').hidden = !pro;
+    $('ed-shape').value = this.draft.shape || 0;
+    $('ed-shape-val').textContent = (this.draft.shape || 0) < 0.25 ? 'round' : (this.draft.shape || 0) < 0.65 ? 'oval' : 'rod';
     $('ed-size').value = this.draft.size;
     $('ed-mem').value = this.draft.membrane;
     $('ed-hue').value = this.draft.hue;
@@ -644,6 +785,7 @@ export class Editor {
   }
 
   originLabel(p) {
+    if (p.o === 'sym') return 'Endosymbiosis';
     if (p.o === 'mut' || p.mutFrom) return 'Free mutation';
     if (p.o === 'new') return `Bought · ${PARTS[p.t].dna} DNA`;
     if (p.o === 'up') return `Evolved · ${PARTS[p.t].dna - PARTS[p.upFrom].dna} DNA`;
@@ -800,9 +942,10 @@ export class Editor {
 
   refreshStats() {
     const ph = phenotype(this.draft);
+    this.ph = ph;
     const o = this.origPh;
     const rows = [
-      ['Top speed', ph.topSpeed, o.topSpeed, (v) => `${v.toFixed(0)} µm/s`, 1],
+      ['Speed', ph.cruise, o.cruise, (v) => `${v.toFixed(0)} µm/s`, 1],
       ['Turning', ph.turn, o.turn, (v) => `${Math.round((v * 180) / Math.PI)}°/s`, 1],
       ['Health', ph.maxHP, o.maxHP, (v) => v.toFixed(0), 1],
       ['Energy store', ph.maxEnergy, o.maxEnergy, (v) => v.toFixed(0), 1],
@@ -820,8 +963,10 @@ export class Editor {
     if (ph.mito || o.mito) rows.push(['O₂ savings', ph.mito, o.mito, pct, 1]);
     if (ph.bite || o.bite) rows.push(['Bite', ph.bite, o.bite, (v) => v.toFixed(1), 1]);
     if (ph.spike || o.spike) rows.push(['Spike', ph.spike, o.spike, (v) => v.toFixed(1), 1]);
-    rows.push(['Plant digestion', ph.plantEff, o.plantEff, pct, 1]);
+    rows.push(['Absorption', ph.absorb, o.absorb, pct, 1]);
+    rows.push(['Particle feeding', ph.particleEff, o.particleEff, pct, 1]);
     rows.push(['Meat digestion', ph.meatEff, o.meatEff, pct, 1]);
+    rows.push(['Virus defence', ph.virusResist, o.virusResist, pct, 1]);
     rows.push(['Division cost', ph.growthNeeded, o.growthNeeded, (v) => v.toFixed(0), -1]);
     let html = '';
     for (const [name, v, ov, fmt, dir] of rows) {
@@ -833,12 +978,16 @@ export class Editor {
       } else delta = '<span class="s-delta"></span>';
       html += `<span class="s-name">${name}</span><span class="s-val">${fmt(v)}</span>${delta}`;
     }
+    html += `<span class="s-name">Moves by</span><span class="s-val s-wrap">${ph.motility}</span><span class="s-delta"></span>`;
     html += `<span class="s-name">Diet</span><span class="s-val">${ph.diet}</span><span class="s-delta"></span>`;
     const cl = ph.sight.clarity;
     const dc = cl - o.sight.clarity;
     html += `<span class="s-name">Clarity</span><span class="s-val">${CLARITY[cl].short}</span><span class="s-delta ${dc > 0 ? 'up' : dc < 0 ? 'down' : ''}">${dc > 0 ? '▲' : dc < 0 ? '▼' : ''}</span>`;
     $('ed-stat-list').innerHTML = html;
     this.drawSight(ph, o);
+    const links = ph.links.map((l) => `<div class="link ${l.good ? 'good' : 'bad'}"><span class="l-dot" aria-hidden="true"></span><span>${l.text}</span></div>`);
+    const hints = ph.hints.map((h) => `<div class="link hint"><span class="l-dot" aria-hidden="true"></span><span>${h}</span></div>`);
+    $('ed-links').innerHTML = links.concat(hints).join('') || '<div class="muted small">No interactions yet. Parts that work together show up here and as glowing links on the cell.</div>';
 
     // Habitat forecast.
     const fitHtml = [];
@@ -885,7 +1034,7 @@ export class Editor {
     leftEl.classList.toggle('neg', left < 0);
     const warn = [];
     if (cost > dna) warn.push('Not enough DNA.');
-    if (ph.plantEff === 0 && ph.meatEff === 0 && ph.photo === 0 && ph.chemo === 0) warn.push('This cell has no way to get energy.');
+    if (ph.absorb < 0.05 && ph.particleEff === 0 && ph.meatEff === 0 && ph.photo === 0 && ph.chemo === 0) warn.push('This cell has no way to get energy.');
     $('ed-warn').textContent = warn.join(' ');
     $('ed-done').disabled = cost > dna;
     if (this.tiles) {
@@ -908,16 +1057,16 @@ export class Editor {
     ctx.clearRect(0, 0, W, H);
     const cx = W / 2;
     const cy = H / 2;
-    const k = (Math.min(W, H) / 2 - 6) / 650;
+    const k = (Math.min(W, H) / 2 - 6) / 320;
     ctx.strokeStyle = 'rgba(120, 200, 255, 0.12)';
     ctx.fillStyle = 'rgba(169, 195, 214, 0.75)';
     ctx.font = '10px "JetBrains Mono", monospace';
-    for (const rr of [200, 400, 600]) {
+    for (const rr of [100, 200, 300]) {
       ctx.beginPath();
       ctx.arc(cx, cy, rr * k, 0, TAU);
       ctx.stroke();
     }
-    ctx.fillText('600 µm', cx + 4, cy - 600 * k + 11);
+    ctx.fillText('300 µm', cx + 4, cy - 300 * k + 11);
     const shape = (sp) => {
       const p = new Path2D();
       for (let i = 0; i <= BINS; i++) {
@@ -971,10 +1120,21 @@ export class Editor {
       world.playerSpecies.name = name;
       world.playerSpecies.genus = name.split(' ')[0];
     }
-    world.playerDivide(g);
+    const notes = [];
+    if (this.symbiosisOn && this.guest === 'mito') notes.push('Became a complex cell');
+    if (this.symbiosisOn && this.guest === 'cyano') notes.push('Gained a chloroplast');
+    if (o) notes.push(o.title);
+    const added = this.draft.parts.filter((p) => p.o === 'new' || p.o === 'up').map((p) => PARTS[p.t].name);
+    if (added.length) notes.push(`+ ${[...new Set(added)].join(', ')}`);
+    world.playerDivide(g, notes.join(' · '));
     this.close();
-    this.onDone({ cost, mutation: o ? o.title : null, newGene });
+    this.onDone({ cost, mutation: o ? o.title : null, newGene, symbiosis: this.symbiosisOn ? this.guest : null });
   }
+}
+
+/** Rotate a cell-local point (x forward) so that forward points up on screen. */
+function lyRot(x, y) {
+  return { x: x * Math.cos(UP) - y * Math.sin(UP), y: x * Math.sin(UP) + y * Math.cos(UP) };
 }
 
 /** "a flagellum", "an eyespot", "cilia" (already plural). */

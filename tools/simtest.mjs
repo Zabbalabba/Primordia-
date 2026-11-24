@@ -19,7 +19,9 @@ for (let s = 0; s < minutes * 60 * 30; s++) {
   if (s % (30 * 30) === 0) {
     const sp = w.species.living().slice(0, 9).map((x) => `${x.name.split(' ').map(p=>p.slice(0,5)).join('.')}:${x.pop}`).join(' ');
     const era = w.env.era.id;
-    console.log(`${(w.time / 60).toFixed(1)}m [${era}] cells=${w.cells.length} food=${w.food.length} species=${w.species.living().length} | ${sp}`);
+    const euk = w.cells.filter((c) => c.ph.euk).length;
+    const pl = w.player ? `P:g${w.progress.generation}${w.player.ph.euk ? 'E' : 'p'}${w.player.guest ? '+' + w.player.guest : ''}` : 'P:-';
+    console.log(`${(w.time / 60).toFixed(1)}m [${era}${w.env.isNight ? ' night' : ''}] cells=${w.cells.length} euk=${euk} food=${w.food.length} vir=${w.viruses.length} giants=${w.giants.length} sp=${w.species.living().length} ${pl} | ${sp}`);
     lastEra = era;
   }
   for (const e of w.events) if (['era','extinct','respawn'].includes(e.type)) console.log('  EVENT', e.type, e.name || e.cause || '');

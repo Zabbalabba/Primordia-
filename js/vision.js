@@ -10,18 +10,18 @@ import { angleDiff, clamp, TAU } from './util.js';
 
 export const BINS = 32;
 
-const EYE_RANGE = { eyespot: 115, eyecup: 195, ocelloid: 290 };
+const EYE_RANGE = { eyespot: 90, eyecup: 150, ocelloid: 230 };
 
 export const CLARITY = [
   {
     name: 'Light and dark',
     short: 'Blurry',
-    desc: 'No eyes. You feel nearby movement, but beyond a short distance other cells are only blurry glows.',
+    desc: 'No senses beyond touch. Past a short distance, other cells are only blurry glows. Chemoreceptors or eyes fix that.',
   },
   {
     name: 'Shapes',
     short: 'Shapes',
-    desc: 'You can make out the outline and parts of other cells.',
+    desc: 'You can make out the outline and parts of other cells, by taste or by sight.',
   },
   {
     name: 'Detail',
@@ -38,10 +38,13 @@ export const CLARITY = [
 /** Sight profile of a genome, before light conditions. */
 export function sightProfile(g) {
   const s = g.size;
-  const base = 105 + 12 * s;
+  // Touch and diffusion cues reach a little way; chemoreceptors taste farther, all around.
+  const chemo = g.parts.filter((p) => p.t === 'chemoreceptor').length;
+  let base = 55 + 10 * s;
+  for (let i = 0; i < chemo; i++) base += 45 * Math.pow(0.7, i);
   const eyes = g.parts.filter((p) => PARTS[p.t].eye);
   const eye = new Float32Array(BINS);
-  let clarity = 0;
+  let clarity = chemo > 0 ? 1 : 0;
   for (const p of eyes) clarity = Math.max(clarity, PARTS[p.t].tier);
   const sizeK = 0.9 + 0.1 * s;
   for (let b = 0; b < BINS; b++) {
@@ -127,5 +130,5 @@ export function sightOutline(c, steps = 64) {
 
 /** How far away bioluminescent glows can be glimpsed in the dark. */
 export function glimpseRange(c) {
-  return Math.max(360, maxRange(c) * 1.7);
+  return Math.max(260, maxRange(c) * 1.7);
 }

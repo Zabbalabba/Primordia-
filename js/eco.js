@@ -6,15 +6,26 @@ import { ERAS } from './environment.js';
 
 const $ = (id) => document.getElementById(id);
 
+// Milestones follow the path of the stage: a simple cell, the partnership
+// that makes a complex cell, then a colony. The colony is the finale.
 export const GOALS = [
-  { id: 'divide', text: 'Divide for the first time', done: (w) => w.progress.divisions >= 1 },
-  { id: 'gene', text: 'Absorb a gene from another species', done: (w) => w.progress.genesAcquired >= 1 },
-  { id: 'era', text: 'Survive a change of era', done: (w) => w.progress.erasSurvived >= 1 },
-  { id: 'gen', text: 'Reach generation 6', done: (w) => w.progress.generation >= 6, prog: (w) => `${Math.min(6, w.progress.generation)}/6` },
-  { id: 'pop', text: 'Grow your lineage to 15 living cells', done: (w) => w.progress.peakLineage >= 15, prog: (w) => `${Math.min(15, w.progress.peakLineage)}/15` },
-  { id: 'biomes', text: 'Thrive in 2 different habitats', done: (w) => w.progress.biomesThrived.size >= 2, prog: (w) => `${Math.min(2, w.progress.biomesThrived.size)}/2` },
-  { id: 'sight', text: 'Evolve eyes that tell threats from prey', done: (w) => (w.player ? w.player.ph.sight.clarity : 0) >= 2 },
-  { id: 'parts', text: 'Evolve a body with 8 parts', done: (w) => (w.player ? w.player.genome.parts.length : 0) >= 8, prog: (w) => `${Math.min(8, w.player ? w.player.genome.parts.length : 0)}/8` },
+  { id: 'divide', chapter: 'Simple cell', text: 'Divide for the first time', done: (w) => w.progress.divisions >= 1 },
+  { id: 'sense', chapter: 'Simple cell', text: 'Evolve chemoreceptors to sense food and danger', done: (w) => !!w.player && w.player.ph.counts.chemoreceptor > 0 },
+  { id: 'gene', chapter: 'Simple cell', text: 'Absorb a gene from another species', done: (w) => w.progress.genesAcquired >= 1 },
+  { id: 'era', chapter: 'Simple cell', text: 'Survive a change of era', done: (w) => w.progress.erasSurvived >= 1 },
+  { id: 'virus', chapter: 'Simple cell', text: 'Survive a virus infection', done: (w) => w.progress.virusesSurvived >= 1 },
+  { id: 'partner', chapter: 'Complex cell', text: 'Take in a partner and become a complex cell', done: (w) => w.progress.eukaryote },
+  { id: 'engulf', chapter: 'Complex cell', text: 'Engulf another cell whole', done: (w) => w.progress.engulfed >= 1 },
+  { id: 'sight', chapter: 'Complex cell', text: 'Evolve eyes that tell threats from prey', done: (w) => (w.player ? w.player.ph.sight.clarity : 0) >= 2 },
+  { id: 'pop', chapter: 'Complex cell', text: 'Grow your lineage to 15 living cells', done: (w) => w.progress.peakLineage >= 15, prog: (w) => `${Math.min(15, w.progress.peakLineage)}/15` },
+  {
+    id: 'colony',
+    chapter: 'Colony',
+    final: true,
+    text: 'Form a colony of 4 cells that stick together',
+    done: (w) => w.progress.colony >= 4,
+    prog: (w) => `${Math.min(4, w.progress.colony)}/4`,
+  },
 ];
 
 export function renderEco(world) {
@@ -55,14 +66,44 @@ export function renderEco(world) {
   drawChart($('eco-chart'), world);
 
   // Goals.
+  let chapter = '';
   $('eco-goals').innerHTML = GOALS.map((g) => {
     const done = g.done(world);
-    return `<div class="goal${done ? ' done' : ''}"><span class="g-check"></span><span class="g-text">${g.text}</span><span class="g-prog">${!done && g.prog ? g.prog(world) : ''}</span></div>`;
+    const head = g.chapter !== chapter ? `<div class="g-chapter">${(chapter = g.chapter)}</div>` : '';
+    return `${head}<div class="goal${done ? ' done' : ''}${g.final ? ' final' : ''}"><span class="g-check"></span><span class="g-text">${g.text}</span><span class="g-prog">${!done && g.prog ? g.prog(world) : ''}</span></div>`;
   }).join('');
+
+  renderLineage(world);
 
   // Log.
   const log = world.species.log.slice(-30).reverse();
   $('eco-log').innerHTML = log.length ? log.map((l) => `<div><time>${formatTime(l.time)}</time>${l.text}</div>`).join('') : '<div>Nothing yet.</div>';
+}
+
+/** Your lineage through the generations: each body you chose when dividing. */
+function renderLineage(world) {
+  const box = $('eco-lineage');
+  if (!box) return;
+  const hist = world.progress.history;
+  box.innerHTML = '';
+  if (!hist.length) {
+    box.innerHTML = '<div class="muted small">Divide to start your family tree.</div>';
+    return;
+  }
+  for (const h of hist) {
+    const item = document.createElement('div');
+    item.className = `lin-item${h.genome.domain === 'euk' ? ' euk' : ''}`;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 88;
+    const ctx = cv.getContext('2d');
+    ctx.scale(2, 2);
+    const r = h.genome.domain === 'euk' ? 12 + 1.5 * h.genome.size : 7 + 5 * h.genome.size;
+    drawCell(ctx, h.genome, r, { x: 22, y: 22, heading: -Math.PI / 2, phase: h.gen }, 0.5, { wobble: 0.5, detail: true });
+    item.appendChild(cv);
+    item.insertAdjacentHTML('beforeend', `<div class="lin-gen">Gen ${h.gen}</div>${h.note ? `<div class="lin-note">${h.note}</div>` : ''}`);
+    box.appendChild(item);
+  }
+  box.scrollLeft = box.scrollWidth;
 }
 
 function drawSpark(cv, hist, color) {

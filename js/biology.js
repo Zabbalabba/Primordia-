@@ -22,8 +22,9 @@ export function viscosity(temp) {
 }
 
 /** 0..1 multiplier on mitochondrial savings; they need oxygen. */
-export function oxygenFactor(o2) {
-  return clamp((o2 - 0.1) / 0.4, 0, 1);
+export function oxygenFactor(o2, internal = false) {
+  // Photosynthesis inside the cell keeps its own mitochondria supplied.
+  return Math.max(internal ? 0.6 : 0, clamp((o2 - 0.1) / 0.4, 0, 1));
 }
 
 /** Energy per second from light and sulfur, before crowding. */
@@ -36,7 +37,7 @@ export function autotrophIncome(ph, e) {
 
 /** Resting energy cost per second at these conditions. */
 export function restingCost(ph, e) {
-  return ph.upkeep * (1 - ph.mito * oxygenFactor(e.o2));
+  return ph.upkeep * (1 - ph.mito * oxygenFactor(e.o2, ph.internalO2));
 }
 
 /**
@@ -54,8 +55,9 @@ export function habitatFit(ph, e, food) {
   if (s.tox > 0.001) notes.push('sulfur toxic');
 
   const income = autotrophIncome(ph, e);
-  const foraging = (ph.plantEff * (food.plant || 0) + ph.meatEff * (food.meat || 0)) * 1.2;
-  const cruise = (ph.fwdThrust + ph.ciliaThrust) * 0.4 * ph.moveCost * (1 - ph.mito * oxygenFactor(e.o2));
+  const reach = 0.6 + Math.min(1, ph.cruise / 25) * 0.6;
+  const foraging = (ph.particleEff * (food.plant || 0) + ph.meatEff * (food.meat || 0)) * reach;
+  const cruise = ph.cruise * 0.4 * ph.moveCost * (1 - ph.mito * oxygenFactor(e.o2, ph.internalO2));
   const net = income + foraging - restingCost(ph, e) - cruise;
   if (income > 0.25) notes.push(ph.photo > 0 && e.light > 0.4 ? 'good light' : 'sulfur energy');
   if (net < -0.05) notes.push('hard to find food');

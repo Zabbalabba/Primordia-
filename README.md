@@ -1,8 +1,8 @@
-# Primordia: cell stage (draft)
+# Primordia: cell stage
 
-This is a browser game about evolution under environmental pressure. You guide a lineage of single cells through a sea that keeps changing. Oxygen rises, ice spreads and vents open. Every body part has a real mechanical effect, and every habitat pushes back on the body you build.
+This is a browser game about evolution under environmental pressure. You guide a lineage of single cells through a sea that keeps changing. Oxygen rises, ice spreads and vents open. Every body part has a real mechanical effect, parts interact with each other, and every habitat pushes back on the body you build.
 
-This is the first playable draft of the **cell stage**.
+The **cell stage** follows the real path of early life: a simple bacterium, the partnership (endosymbiosis) that makes a complex cell, then a colony of cells that stick together.
 
 ## Play it
 
@@ -11,7 +11,7 @@ This is the first playable draft of the **cell stage**.
 - **Install it as an app:** see [Install on a phone](#install-on-a-phone).
 - **Hosting:** `index.html` works as-is on any static host, GitHub Pages included. `npm run build` regenerates `dist/primordia.html` (a self-contained copy) and `dist/artifact.html` (the version published to claude.ai).
 
-Controls: WASD or arrow keys, or hold the mouse button (or your finger) to swim toward the pointer. Shift sprints. E or Space releases toxin. R divides. Tab opens the ecosystem view, P pauses and the mouse wheel zooms.
+Controls: WASD or arrow keys, or hold the mouse button (or your finger) to swim toward the pointer. Shift sprints. E or Space releases toxin. C turns your cell into a dormant cyst (and wakes it). R divides. Tab opens the ecosystem view, P pauses, M mutes and the mouse wheel zooms.
 
 ## Install on a phone
 
@@ -38,79 +38,87 @@ Saves go to two places (`js/save.js`):
 
 When loading, the newer of the two saves wins. When your lineage dies out, the save is deleted. `npm run savetest` checks that a save and restore round trip keeps the world intact.
 
+Saves are versioned. Version 2 belongs to cell stage 2.0; saves from the first cell stage (version 1) are not loaded, and are removed the first time the new version saves.
+
 ## Core loop
 
-1. **Swim, eat, survive.** Food that a cell can't digest gives it nothing, and a mouth only works on the side it faces.
+1. **Swim, feed, survive.** At this scale water is thick: a cell stops the moment its motor stops, and currents carry everything. A simple cell absorbs food it touches through its membrane, or makes its own from light or sulfur.
 2. **Grow.** Spare energy fills the Division bar.
 3. **Divide.** The editor opens with:
-   - **Three free mutation offers.** They are weighted by what this generation actually went through (stress-induced mutation). For example, time spent near your cold limit brings up Antifreeze, and attacks from behind bring up rear armor or spikes.
-   - **DNA spending.** You can buy any unlocked part, change size or membrane thickness, and move parts around.
-     - Each part tile has **− / +** buttons. Plus places a copy at a sensible spot. Minus takes back copies added this division, but never goes below what your cell already had. Losing an inherited part is a separate, deliberate action on the selected part.
-     - The cell view zooms (buttons, mouse wheel or pinch) and pans (drag empty space).
-     - The **On this cell** list selects any part, even where parts overlap; clicking an overlapping spot again cycles through the parts there. A selected part can be rotated in 15° steps or with a slider.
-     - The DNA / Cost / Left readout is pinned to the Divide bar, so it stays visible while you scroll.
-   - **Live stats and a habitat forecast.** These show how the new body would do in each habitat, both now and in the next era.
-4. **Your lineage persists.** Each division adds a sibling. If you die you continue as the nearest relative. If every member dies, the lineage is extinct.
+   - **Three free mutation offers.** They are weighted by what this generation actually went through (stress-induced mutation). For example, time near your cold limit brings up Antifreeze, and attacks from behind bring up a cell wall or spikes. Until you can sense your surroundings, chemoreceptors are always offered; once you are a complex cell, eyes are offered until you have an eye cup.
+   - **DNA spending.** You can buy any unlocked part, change size, membrane thickness and (for simple cells) shape from round to rod, and move parts around. Each part tile has **− / +** buttons; minus never goes below what your cell already had. The cell view zooms and pans, and the **On this cell** list selects any part, even where parts overlap.
+   - **How your parts work together.** A list of the interactions in your body, good and bad, drawn as glowing links between the parts on the cell.
+   - **Endosymbiosis**, when a bacterium is living inside you (see below).
+   - **Live stats and a habitat forecast** for now and the next era.
+4. **Your lineage persists.** Each division adds a sibling. If you die you continue as the nearest relative (a colony member first). If every member dies, the lineage is extinct.
+
+The stage is complete when your lineage forms a **colony of 4**. Milestones along the way are grouped by chapter in the ecosystem view, next to a timeline of every body your lineage has had.
 
 ## Systems
 
+### The path: simple cell → complex cell → colony
+
+- **Simple cell (prokaryote).** You start as a bacterium that twitches along on **pili**, which pull toward the side they sit on. A **rotary flagellum** gives fast straight runs, but turning means tumbling into a semi-random direction; **chemoreceptors** steer the tumbles (chemotaxis). **Gas vesicles** let photosynthesizers drift toward light.
+- **Endosymbiosis.** After the Great Oxidation (or once you have divided a few times), oxygen-breathing bacteria (*Protomitos aerobius*) appear and look for larger simple cells to live in. When one slips inside you, the next division offers to keep it as a partner: it becomes your first **mitochondrion**, and your lineage becomes a **complex cell (eukaryote)**: bigger, with a nucleus, a cytoskeleton and new parts. Bacterial pili and rotary flagella are lost. AI lineages can make the same jump, so complex cells and bigger hunters appear in the pond. A complex cell that engulfs a photosynthetic bacterium may keep it as a **chloroplast**.
+- **Complex cell (eukaryote).** Pseudopods (crawling and engulfing), cilia (smooth swimming and a feeding current), a whip-like flagellum, oral groove, food vacuole and lysosomes, a cytostome (cell mouth), armor plates, spikes and eyes.
+- **Colony.** **Adhesion proteins** keep daughter cells attached. The colony moves as one, with more motors and more drag.
+
+### Interactions between parts (`INTERACTIONS` in `js/genome.js`)
+
+Parts change each other's effect. Examples: photosynthesis feeds oxygen straight to mitochondria; mitochondria power cilia and flagella; pseudopods plus a food vacuole allow engulfing; cilia sweep food into the oral groove; chemoreceptors steer a rotary flagellum; storage granules bank daytime surplus for the night and extend dormancy. Drawbacks too: pigment shades photosynthesis, a slime capsule hampers pili, and a rigid cell wall stops pseudopods and engulfing. The editor also gives hints for missing partners, such as a food vacuole without lysosomes.
+
 ### Environment (`js/environment.js`)
 
-The pond is 3600×3600 µm. Static fields cover depth, vents, sulfur seeps, cold currents and swirling currents. Each point has five conditions:
+The pond is 2400×2400 µm. Static fields cover depth, vents, sulfur seeps, cold currents and swirling currents. Each point has five conditions:
 
 | Condition | Source | Body interaction |
 |---|---|---|
-| Temperature | Depth, cold currents, vents, era | Tolerance range from Antifreeze, Heat-Shock Proteins and size. Cold water is also more viscous, so swimming is slower and cilia lose power. |
-| Light | Depth, ice cover, era | Chloroplasts turn light into energy. Low light reduces vision. |
-| UV | Bright water × era (no ozone at first) | Pigment raises the UV limit. |
-| Oxygen | Era baseline + local photosynthesis − sulfur | Peroxisomes raise the oxygen limit. Mitochondria cut energy costs when oxygen is high. |
-| Sulfur | Vents, seeps, volcanic eras | Sulfide Enzymes raise the limit and resist toxin clouds. Symbionts turn sulfur into energy. |
+| Temperature | Depth, cold currents, vents, era | Tolerance range from Antifreeze, Heat-Shock Proteins and size. Cold water is also more viscous. |
+| Light | Depth, ice cover, era, time of day | Thylakoids and chloroplasts turn light into energy. Low light reduces vision. |
+| UV | Bright water × era × daylight (no ozone at first) | Pigment raises the UV limit. |
+| Oxygen | Era baseline + local photosynthesis − sulfur | Catalase Enzymes raise the oxygen limit. Mitochondria cut energy costs when oxygen is present. |
+| Sulfur | Vents, seeps, volcanic eras | Sulfide Enzymes raise the limit. Sulfur Metabolism turns sulfur into energy. |
 
-Photosynthesizers really do add oxygen to the water around them.
+Photosynthesizers really do add oxygen to the water around them. A **day and night cycle** (4 minutes) stops photosynthesis at night.
 
-**Eras** run about 4–5 minutes each, with 40-second transitions and a visible forecast. The first is *Primordial Warmth* (no oxygen, harsh UV), followed by the *Great Oxidation*. After that the sequence is random among *Global Glaciation*, *Volcanic Upheaval* (new vents open), *Age of Blooms* and *Oxidation*.
+**Eras** run about 4–5 minutes each, with transitions and a visible forecast. The first is *Primordial Warmth* (no oxygen, harsh UV), followed by the *Great Oxidation*. After that the sequence is random among *Global Glaciation*, *Volcanic Upheaval* (new vents open), *Age of Blooms* and *Oxidation*.
 
-### Body (`js/parts.js`, `js/genome.js`)
+### Dangers
 
-There are 19 parts in 6 categories. External parts sit on the membrane at an angle, and that angle matters:
-
-- A flagellum pushes hardest from the rear and wastes energy on the side.
-- Mouths, spikes, armor and eyes each cover an arc. Armor blocks 60% of the damage coming from its side.
-
-`phenotype()` turns a genome into every number the simulation uses: speed, turning, HP, upkeep, vision, tolerances, digestion, bite and so on.
+- **Predators** at your own scale: predatory bacteria with a lytic tip, and later complex cells that bite or engulf. Nothing is hypermobile; hunters are only a little faster than their prey.
+- **Viruses** are host-specific strains. A strain adapts to whichever species is most common ("kill the winner"), so success attracts them. An infection either clears or bursts the cell; **CRISPR** genes clear infections more often and remember the strain for lasting immunity.
+- A **rotifer**, a many-celled animal, sometimes passes through and sucks in everything near its mouth.
+- **Dormant cysts** (C): the cell seals itself and sleeps through almost anything, but can't eat or move.
 
 ### Sight (`js/vision.js`)
 
-Every cell senses its surroundings a short way in all directions. Eyes add range in the direction they face, so placement matters: front-facing eyes leave you blind behind. Eyes also need light, though bioluminescence keeps them partly useful in the dark.
-
-Eyes evolve in tiers. Each tier adds **range** and **clarity**:
+Every cell senses a short way in all directions; chemoreceptors extend that and let you tell other cells apart by scent. Eyes (complex cells only) add range in the direction they face. Eyes evolve in tiers, each adding **range** and **clarity**:
 
 | Eye | Clarity | What you get |
 |---|---|---|
 | none | Light and dark | Beyond a short distance, other cells are blurry glows |
-| Eyespot (8 DNA, unlocked from the start) | Shapes | You see other cells' bodies and parts |
+| Eyespot | Shapes | You see other cells' bodies and parts |
 | Eye Cup | Detail | Threats are ringed red and prey green |
 | Ocelloid | Sharp | Species name tags and off-screen predator arrows |
 
-How fast sight improves:
-- Living a generation with an eye unlocks its next tier, which you can then buy as an in-place upgrade in the editor (10–12 DNA).
-- An eye mutation is guaranteed at every division until your lineage has an eye cup, so decent sight takes about two divisions.
-- AI cells use the same directional sight. Eyeless cells can't tell hunters from harmless cells, so they flee anything large.
-
-Out-of-sight cells show only as faint bioluminescent glows. With an eyespot or better, those glows carry the species colour. The editor shows a top-down diagram of what the new body can see, compared with the current one.
+Living a generation with an eye unlocks its next tier. The camera frames what you can sense, so better senses literally widen your view.
 
 ### Ecosystem (`js/world.js`, `js/ai.js`, `js/species.js`)
 
-- About 7 founding AI species plus your own. AI cells flee, hunt (leading the target and sprinting at the end), graze, and probe nearby water to move toward conditions they tolerate.
-- AI divisions mutate. Stressed cells are more likely to mutate toward relief, and genomes that drift far enough from their founder become a **new species** with a generated name. Selection happens on its own: bodies that suit the current era multiply.
-- Migrants recolonize empty habitats, and a population floor stops a mass extinction from emptying the pond.
+- About 7 founding microbe species plus your own. AI cells flee, hunt, graze, seek hosts (symbionts), avoid the rotifer, encyst when it helps, and probe nearby water to move toward conditions they tolerate.
+- AI divisions mutate under the same pressures, and genomes that drift far enough become a **new species** with a generated name. Common species are held back by crowding and viruses.
+- Migrants recolonize empty habitats, and later complex-cell migrants arrive.
 - **Horizontal gene transfer:** eating cells or their remains can unlock their parts for you.
+
+### Sound (`js/audio.js`)
+
+Ambient music is generated live with Web Audio: slow pads, a breathing drone, glassy bells and a hiss of water. Each era has its own key and scale; light brightens the sound and brings more bells, night darkens it, and a low dissonant pulse rises when something can eat you, the rotifer is near or you are infected. Sound effects are tuned to the current scale, so eating plays notes that fit the music. Volumes are in the pause menu; M mutes.
 
 ### Other files
 
 - `js/pressures.js`: tracks the stress your generation experienced and builds the mutation offers.
 - `js/biology.js`: shared rules for environmental damage, energy income and the habitat-fit score.
-- `js/render.js`, `js/cellDraw.js`: Canvas 2D renderer in the Deep Glow style (visual concept B), with procedurally animated, glowing cells and sight-shaped darkness.
+- `js/render.js`, `js/cellDraw.js`: Canvas 2D renderer in the Deep Glow style (visual concept B).
 - `js/hud.js`, `js/editor.js`, `js/eco.js`, `js/main.js`: UI and the game loop.
 
 ## Tooling
@@ -120,12 +128,6 @@ Out-of-sight cells show only as faint bioluminescent glows. With an eyespot or b
 
 ## Known gaps and next steps
 
-- Balance is first-pass. Specialist founders (vent and cold dwellers, armored grazers) still tend to die out within the first few eras, and migrants refill their niches. Predators are fairly weak.
-- No save or load yet.
-- No sound.
-- Touch controls work, but the editor is mouse-first.
-- Ideas for the next draft:
-  - Food-web and cause-of-death charts in the ecosystem view.
-  - Cell colonies (a first step toward multicellularity).
-  - Symbiosis events (engulfing a bacterium to gain mitochondria or chloroplasts).
-  - A tutorial era.
+- Balance is still being tuned. Fast simple swimmers (*Vibrella*) tend to be the most common microbe, and how quickly complex cells take over varies between seeds.
+- The editor works on touch screens but is easiest with a mouse.
+- Ideas for later: a spatial layout inside the cell (organelles that need to be near each other), food-web and cause-of-death charts, division of labour inside colonies, and the next stage.

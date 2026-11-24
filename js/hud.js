@@ -59,8 +59,28 @@ export class HUD {
     $('hud-lineage').textContent = sp ? sp.pop : 1;
     $('hud-diet').textContent = ph.diet;
     $('hud-sight').textContent = `Sight: ${CLARITY[ph.sight.clarity].short}`;
+    const colony = world.progress.colony || 1;
+    $('hud-phase').textContent = colony > 1 ? `Colony of ${colony}` : ph.euk ? 'Complex cell' : 'Simple cell';
+    $('hud-phase').classList.toggle('euk', ph.euk);
+    const status = [];
+    if (p.infection) status.push(`<span class="st bad">Virus · ${Math.ceil(p.infection.t)}s</span>`);
+    if (p.cyst) status.push(`<span class="st cyst">Dormant · ${Math.ceil(p.cystT)}s</span>`);
+    if (p.guest) status.push(`<span class="st guest">${p.guest === 'mito' ? 'Guest: aerobic bacterium' : 'Guest: cyanobacterium'}</span>`);
+    if (p.meal) status.push('<span class="st">Digesting</span>');
+    if (p.immune.size) status.push(`<span class="st good">Immune to ${p.immune.size} virus${p.immune.size > 1 ? 'es' : ''}</span>`);
+    const html = status.join('');
+    if (this.statusHtml !== html) {
+      $('hud-status').innerHTML = html;
+      this.statusHtml = html;
+    }
+    $('btn-cyst').hidden = !ph.cyst;
+    $('btn-cyst').textContent = p.cyst ? 'Wake' : 'Cyst';
+    const day = world.env.dayLight;
+    $('hud-day').textContent = world.env.isNight ? 'Night' : day > 0.9 ? 'Midday' : 'Day';
+    $('hud-day-bar').style.left = `${Math.round(((world.env.time / 240 + 0.1) % 1) * 100)}%`;
     $('btn-divide').hidden = !(gr >= 1);
     $('btn-toxin').hidden = !(ph.toxin > 0);
+    $('btn-toxin').classList.toggle('touch-key', true);
     $('btn-toxin').disabled = p.toxinCd > 0;
 
     const e = p.env;

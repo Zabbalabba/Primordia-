@@ -25,7 +25,11 @@ export class Renderer {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.world = world;
-    this.cam = { x: world.size / 2, y: world.size / 2, zoom: 1 };
+    // `span` is how many µm fit across the shorter side of the screen.
+    this.cam = { x: world.size / 2, y: world.size / 2, zoom: 1, span: 420 };
+    this.drift = { x: 0, y: 0 };
+    this.swirl = [];
+    for (let i = 0; i < 46; i++) this.swirl.push({ a: Math.random() * Math.PI * 2, d: Math.random(), s: 0.5 + Math.random() });
     this.userZoom = 1;
     this.bg = document.createElement('canvas');
     this.fog = document.createElement('canvas');
@@ -59,7 +63,7 @@ export class Renderer {
 
   get scale() {
     const m = Math.min(this.w, this.h);
-    return (m / (m < 600 ? 470 : 720)) * this.cam.zoom;
+    return (m / this.cam.span) * this.userZoom;
   }
 
   buildBackground() {
@@ -119,9 +123,10 @@ export class Renderer {
       this.cam.x += (p.x - this.cam.x) * k;
       this.cam.y += (p.y - this.cam.y) * k;
       // Zoom out a little for big cells and for long sight.
-      const sightK = clamp(1.12 - (maxRange(p) - 220) / 900, 0.8, 1.12);
-      const target = this.userZoom * clamp(1.15 - (p.r - 13) / 60, 0.6, 1.2) * sightK;
-      this.cam.zoom += (target - this.cam.zoom) * (1 - Math.exp(-dt * 2));
+      // Frame what the cell can sense, and a bit more for big cells: the view
+      // widens as sight evolves.
+      const target = clamp(Math.max(maxRange(p) * 2.15, p.r * 26), 170, 640);
+      this.cam.span += (target - this.cam.span) * (1 - Math.exp(-dt * 1.5));
     }
   }
 
@@ -221,6 +226,29 @@ export class Renderer {
     }
     ctx.globalAlpha = 1;
 
+    // Viruses: tiny host-coloured specks with a hard glint.
+    const vs = this.world.viruses;
+    for (const v of vs) {
+      if (!inView(v.x, v.y, 6)) continue;
+      const sp = this.world.species.get(v.strain);
+      const hue = sp ? (sp.hue + 300) % 360 : 300;
+      const tw = 1 + 0.25 * Math.sin(t * 5 + v.phase);
+      ctx.drawImage(glowSprite(hue, 90), v.x - 4 * tw, v.y - 4 * tw, 8 * tw, 8 * tw);
+      ctx.strokeStyle = `hsla(${hue}, 100%, 85%, 0.9)`;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * TAU + v.phase;
+        if (i === 0) ctx.moveTo(v.x + Math.cos(a) * 1.3, v.y + Math.sin(a) * 1.3);
+        else ctx.lineTo(v.x + Math.cos(a) * 1.3, v.y + Math.sin(a) * 1.3);
+      }
+      ctx.closePath();
+      ctx.stroke();
+    }
+
+    // The rotifer: a many-celled animal, drawn as a translucent giant.
+    for (const g of this.world.giants) if (inView(g.x, g.y, g.r * 4)) this.drawGiant(ctx, g, t);
+
     // Toxin clouds.
     for (const cl of world.clouds) {
       if (!inView(cl.x, cl.y, cl.r)) continue;
@@ -268,7 +296,18 @@ export class Renderer {
       let look = c.heading;
       if (c.ai.prey && !c.ai.prey.dead) look = Math.atan2(c.ai.prey.y - c.y, c.ai.prey.x - c.x);
       if (c.isPlayer && this.lookTarget) look = Math.atan2(this.lookTarget.y - c.y, this.lookTarget.x - c.x);
-      drawCell(ctx, c.genome, c.r, { x: c.x, y: c.y, heading: c.heading, thrustLevel: c.thrustLevel, biteAnim: c.biteAnim, flash: c.flash, phase: c.phase, look }, t, {
+      if (c.attachedTo && !c.attachedTo.dead) {
+        // Colony bridges.
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = `hsla(${c.genome.hue}, 100%, 70%, 0.45)`;
+        ctx.lineWidth = Math.max(1, c.r * 0.35);
+        ctx.beginPath();
+        ctx.moveTo(c.x, c.y);
+        ctx.lineTo(c.attachedTo.x, c.attachedTo.y);
+        ctx.stroke();
+        ctx.globalCompositeOperation = 'source-over';
+      }
+      drawCell(ctx, c.genome, c.r, { x: c.x, y: c.y, heading: c.heading, thrustLevel: c.thrustLevel, biteAnim: c.biteAnim, flash: c.flash, phase: c.phase, look, cyst: c.cyst, infected: !!c.infection && (c.isPlayer || clarity >= 2 || c.speciesId === lineage), guest: c.guest, meal: c.meal }, t, {
         simple,
         blob,
         blobSat: 25,
@@ -290,6 +329,23 @@ export class Renderer {
           ctx.setLineDash([]);
         }
       }
+    }
+
+    // Scent: chemoreceptors point toward food.
+    if (player && player.scent && !player.cyst) {
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 8; i++) {
+        const v = player.scent[i];
+        if (v < 0.25) continue;
+        const a = (i / 8) * TAU;
+        const rr = player.r * 2.1 + 4;
+        ctx.strokeStyle = `rgba(120, 255, 170, ${0.15 + 0.4 * v})`;
+        ctx.lineWidth = 1.5 / Math.max(0.6, s);
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, rr, a - 0.22, a + 0.22);
+        ctx.stroke();
+      }
+      ctx.globalCompositeOperation = 'source-over';
     }
 
     // Effects.
@@ -325,6 +381,12 @@ export class Renderer {
           ctx.lineTo(f.x + Math.cos(a) * (5 + k * 12), f.y + Math.sin(a) * (5 + k * 12));
           ctx.stroke();
         }
+      } else if (f.type === 'engulf') {
+        ctx.strokeStyle = `hsla(${f.hue}, 100%, 75%, ${0.9 * (1 - k)})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, f.r * (1.6 - k), 0, TAU);
+        ctx.stroke();
       } else if (f.type === 'eat') {
         ctx.fillStyle = `rgba(200, 255, 220, ${0.7 * (1 - k)})`;
         ctx.beginPath();
@@ -368,9 +430,12 @@ export class Renderer {
 
     // Drifting marine snow.
     ctx.globalCompositeOperation = 'lighter';
+    const cur = this.world.env.current(this.cam.x, this.cam.y, this._cur || (this._cur = { x: 0, y: 0 }));
+    this.drift.x += cur.x * 0.016;
+    this.drift.y += cur.y * 0.016;
     for (const m of this.motes) {
-      const px = (((m.x * w - this.cam.x * s * m.z * 0.3) % w) + w) % w;
-      const py = (((m.y * h - this.cam.y * s * m.z * 0.3 + t * 6 * m.z) % h) + h) % h;
+      const px = (((m.x * w + (this.drift.x - this.cam.x) * s * m.z * 0.6) % w) + w) % w;
+      const py = (((m.y * h + (this.drift.y - this.cam.y) * s * m.z * 0.6 + t * 4 * m.z) % h) + h) % h;
       ctx.fillStyle = `rgba(140, 200, 255, ${0.05 + 0.12 * m.z})`;
       ctx.beginPath();
       ctx.arc(px, py, m.s * m.z * 1.4, 0, TAU);
@@ -378,6 +443,12 @@ export class Renderer {
     }
     ctx.globalCompositeOperation = 'source-over';
 
+    // Night: the water darkens, and life's own glow stands out more.
+    const night = 1 - this.world.env.dayLight;
+    if (night > 0.05) {
+      ctx.fillStyle = `rgba(0, 2, 12, ${night * 0.45})`;
+      ctx.fillRect(0, 0, w, h);
+    }
     if (player) {
       this.drawDarkness(ctx, player, s);
       this.drawGlimpses(ctx, glimpsed, player, clarity, s, t);
@@ -392,6 +463,75 @@ export class Renderer {
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, w, h);
     }
+  }
+
+  drawGiant(ctx, g, t) {
+    ctx.save();
+    ctx.translate(g.x, g.y);
+    ctx.rotate(g.heading);
+    const R = g.r;
+    ctx.globalCompositeOperation = 'lighter';
+    // Feeding current: streaks spiralling into the mouth.
+    if (g.feeding) {
+      for (const p of this.swirl) {
+        p.d -= 0.006 * p.s;
+        p.a += 0.03 * p.s;
+        if (p.d < 0.05) p.d = 1;
+        const rr = 20 + p.d * 140;
+        const x = R + Math.cos(p.a) * rr;
+        const y = Math.sin(p.a) * rr;
+        ctx.strokeStyle = `rgba(200, 230, 255, ${0.25 * (1 - p.d) + 0.05})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(R, 0, rr, p.a, p.a + 0.18 * p.s);
+        ctx.stroke();
+        void x;
+        void y;
+      }
+    }
+    // Body: trunk and foot.
+    const body = new Path2D();
+    body.moveTo(R * 0.9, -R * 0.55);
+    body.quadraticCurveTo(R * 0.2, -R * 0.7, -R * 0.8, -R * 0.35);
+    body.quadraticCurveTo(-R * 1.6, -R * 0.15, -R * 2.1, 0);
+    body.quadraticCurveTo(-R * 1.6, R * 0.15, -R * 0.8, R * 0.35);
+    body.quadraticCurveTo(R * 0.2, R * 0.7, R * 0.9, R * 0.55);
+    body.closePath();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = 'rgba(40, 32, 20, 0.35)';
+    ctx.fill(body);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = 'rgba(255, 230, 170, 0.55)';
+    ctx.lineWidth = 2;
+    ctx.stroke(body);
+    // Inner organs: the chewing mastax and a gut.
+    ctx.fillStyle = 'rgba(255, 200, 120, 0.25)';
+    ctx.beginPath();
+    ctx.ellipse(R * 0.2, 0, R * 0.25, R * 0.18, 0, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 210, 140, 0.35)';
+    ctx.beginPath();
+    ctx.moveTo(R * 0.05, 0);
+    ctx.quadraticCurveTo(-R * 0.6, R * 0.15, -R * 1.2, 0);
+    ctx.stroke();
+    // The corona: two wheels of beating cilia.
+    for (const side of [-1, 1]) {
+      const cx = R * 0.95;
+      const cy = side * R * 0.38;
+      ctx.strokeStyle = 'rgba(255, 240, 200, 0.5)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R * 0.36, 0, TAU);
+      ctx.stroke();
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * TAU + t * (g.feeding ? 6 : 1.5) * side;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(a) * R * 0.36, cy + Math.sin(a) * R * 0.36);
+        ctx.lineTo(cx + Math.cos(a) * R * 0.5, cy + Math.sin(a) * R * 0.5);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
   }
 
   /** Darkness everywhere except the shape of what the player can see. */

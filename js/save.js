@@ -8,18 +8,24 @@
 import { World, Cell } from './world.js';
 import { phenotype } from './genome.js';
 
-export const SAVE_VERSION = 1;
-const LS_KEY = 'primordia.save.v1';
+// Version 2: cell stage 2.0 (simple and complex cells, viruses, symbionts,
+// colonies). Version 1 saves are from the old cell stage and are not loaded.
+export const SAVE_VERSION = 2;
+const LS_KEY = 'primordia.save.v2';
+const OLD_KEYS = ['primordia.save.v1'];
 const CLOUD_LIMIT = 240000; // characters; documents are capped at 256 KiB
 
 const r1 = (v) => Math.round(v * 10) / 10;
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
 function packGenome(g) {
-  return { s: r3(g.size), m: r3(g.membrane), h: Math.round(g.hue), p: g.parts.map((p) => [p.t, r3(p.a)]) };
+  const o = { s: r3(g.size), m: r3(g.membrane), h: Math.round(g.hue), p: g.parts.map((p) => [p.t, r3(p.a)]) };
+  if (g.domain === 'euk') o.d = 'euk';
+  if (g.shape) o.sh = r3(g.shape);
+  return o;
 }
 function unpackGenome(o) {
-  return { size: o.s, membrane: o.m, hue: o.h, parts: o.p.map(([t, a]) => ({ t, a })) };
+  return { size: o.s, membrane: o.m, hue: o.h, domain: o.d || 'pro', shape: o.sh || 0, parts: o.p.map(([t, a]) => ({ t, a })) };
 }
 
 /** Snapshot of the whole game as plain JSON-able data. */
@@ -28,16 +34,34 @@ export function serialize(world, meta = {}) {
   const q = new Uint8Array(env.o2Local.length);
   for (let i = 0; i < q.length; i++) q[i] = Math.round(Math.min(1, env.o2Local[i] / 0.35) * 255);
   const pr = world.progress;
+  const alive = world.cells.filter((c) => !c.dead);
+  const index = new Map(alive.map((c, i) => [c, i]));
   return {
     v: SAVE_VERSION,
     seed: world.seed,
     time: world.time,
     rng: world.rng.state,
     gameOver: world.gameOver,
-    timers: { oxygen: world.oxygenTimer, immigration: world.immigrationTimer, migrant: world.migrantTimer ?? 40 },
+    timers: {
+      oxygen: world.oxygenTimer,
+      immigration: world.immigrationTimer,
+      migrant: world.migrantTimer ?? 40,
+      symbiont: world.symbiontTimer,
+      virus: world.virusTimer,
+      giant: world.giantTimer,
+    },
+    eukaryotesExist: world.eukaryotesExist,
+    symbiontSpecies: world.symbiontSpecies ? world.symbiontSpecies.id : null,
+    viruses: world.viruses.map((v) => [r1(v.x), r1(v.y), v.strain, r1(v.age), r1(v.life), r1(v.phase)]),
+    giants: world.giants.map((g) => ({ x: g.x, y: g.y, heading: g.heading, r: g.r, t: g.t, life: g.life, phase: g.phase, feeding: g.feeding, target: g.target })),
     lineageCauses: world.lineageCauses || {},
     deathStats: world.deathStats || {},
-    progress: { ...pr, unlocked: [...pr.unlocked], biomesThrived: [...pr.biomesThrived] },
+    progress: {
+      ...pr,
+      unlocked: [...pr.unlocked],
+      biomesThrived: [...pr.biomesThrived],
+      history: pr.history.map((h) => ({ gen: h.gen, note: h.note, time: r1(h.time), g: packGenome(h.genome) })),
+    },
     env: {
       rng: env.rng.state,
       time: env.time,
@@ -49,9 +73,7 @@ export function serialize(world, meta = {}) {
       extraVents: env.extraVents.map((v) => ({ x: r1(v.x), y: r1(v.y), strength: r3(v.strength) })),
       o2: bytesToB64(q),
     },
-    cells: world.cells
-      .filter((c) => !c.dead)
-      .map((c) => {
+    cells: alive.map((c) => {
         const o = {
           g: packGenome(c.genome),
           sp: c.speciesId,
@@ -63,6 +85,12 @@ export function serialize(world, meta = {}) {
           o.comfort = c.comfort || {};
         }
         if (c.sm) o.sm = [c.sm.cold, c.sm.heat, c.sm.uv, c.sm.o2, c.sm.tox].map((v) => Math.round(v * 1e5) / 1e5);
+        if (c.guest) o.guest = c.guest;
+        if (c.immune.size) o.imm = [...c.immune];
+        if (c.infection) o.inf = [c.infection.strain, r1(c.infection.t), r1(c.infection.total)];
+        if (c.cyst) o.cyst = r1(c.cystT);
+        if (c.meal) o.meal = [r1(c.meal.left), r3(c.meal.rate), Math.round(c.meal.hue), r1(c.meal.r)];
+        if (c.attachedTo && index.has(c.attachedTo)) o.att = [index.get(c.attachedTo), r3(c.offset.a), r1(c.offset.d), r3(c.offset.h)];
         return o;
       }),
     food: world.food
@@ -111,9 +139,20 @@ export function deserialize(d) {
   world.oxygenTimer = d.timers.oxygen;
   world.immigrationTimer = d.timers.immigration;
   world.migrantTimer = d.timers.migrant;
+  world.symbiontTimer = d.timers.symbiont ?? world.symbiontTimer;
+  world.virusTimer = d.timers.virus ?? world.virusTimer;
+  world.giantTimer = d.timers.giant ?? world.giantTimer;
+  world.eukaryotesExist = !!d.eukaryotesExist;
+  world.viruses = (d.viruses || []).map(([x, y, strain, age, life, phase]) => ({ x, y, strain, age, life, phase }));
+  world.giants = (d.giants || []).map((g) => ({ ...g }));
   world.lineageCauses = d.lineageCauses;
   world.deathStats = d.deathStats;
-  world.progress = { ...d.progress, unlocked: new Set(d.progress.unlocked), biomesThrived: new Set(d.progress.biomesThrived) };
+  world.progress = {
+    ...d.progress,
+    unlocked: new Set(d.progress.unlocked),
+    biomesThrived: new Set(d.progress.biomesThrived),
+    history: (d.progress.history || []).map((h) => ({ gen: h.gen, note: h.note, time: h.time, genome: unpackGenome(h.g) })),
+  };
 
   // Species.
   const reg = world.species;
@@ -123,6 +162,7 @@ export function deserialize(d) {
   reg.log = d.species.log;
   reg.historyTimes = d.species.historyTimes;
   world.playerSpecies = [...reg.map.values()].find((s) => s.isPlayer) || null;
+  world.symbiontSpecies = d.symbiontSpecies != null ? reg.map.get(d.symbiontSpecies) || null : null;
 
   // Cells.
   world.cells = [];
@@ -140,9 +180,25 @@ export function deserialize(d) {
       c.comfort = o.comfort;
       world.player = c;
     }
+    if (o.guest) c.guest = o.guest;
+    if (o.imm) c.immune = new Set(o.imm);
+    if (o.inf) c.infection = { strain: o.inf[0], t: o.inf[1], total: o.inf[2] };
+    if (o.cyst != null) {
+      c.cyst = true;
+      c.cystT = o.cyst;
+    }
+    if (o.meal) c.meal = { left: o.meal[0], rate: o.meal[1], hue: o.meal[2], r: o.meal[3] };
     env.sample(c.x, c.y, c.env);
     world.cells.push(c);
   }
+  // Colony links, once every cell exists.
+  d.cells.forEach((o, i) => {
+    if (!o.att) return;
+    const anchor = world.cells[o.att[0]];
+    if (!anchor) return;
+    world.cells[i].attachedTo = anchor;
+    world.cells[i].offset = { a: o.att[1], d: o.att[2], h: o.att[3] };
+  });
 
   // Food.
   world.food = d.food.map(([kind, x, y, r, energy, age, life, rot, genes]) => ({
@@ -279,6 +335,7 @@ export class SaveStore {
     const savedAt = Date.now();
     const body = { v: SAVE_VERSION, savedAt, summary: summarize(world), data: serialize(world, meta) };
     try {
+      for (const k of OLD_KEYS) localStorage.removeItem(k);
       localStorage.setItem(LS_KEY, JSON.stringify(body));
       this.lastSaved = savedAt;
       return body;
@@ -328,6 +385,7 @@ export class SaveStore {
   clear() {
     try {
       localStorage.removeItem(LS_KEY);
+      for (const k of OLD_KEYS) localStorage.removeItem(k);
     } catch {
       /* storage unavailable */
     }

@@ -3,7 +3,8 @@
 
 import { RNG, makeNoise2D, fbm, clamp, lerp, smoothstep } from './util.js';
 
-export const WORLD_SIZE = 3600;
+export const WORLD_SIZE = 2400;
+export const DAY_LENGTH = 240; // seconds for a full day and night
 const GRID_CS = 40;
 
 export const BIOMES = {
@@ -30,7 +31,7 @@ export const ERAS = {
     name: 'Great Oxidation',
     desc: 'Photosynthesis floods the water with oxygen. An ozone layer forms and UV fades, but oxygen poisons cells that can’t neutralize it.',
     temp: 0, light: 1.0, uv: 0.3, o2: 0.72, tox: 0, food: 1.05, extraVents: 0,
-    hint: 'Oxygen rises in lit water. Peroxisomes protect; mitochondria profit.',
+    hint: 'Oxygen rises in lit water. Catalase enzymes protect; mitochondria profit, and oxygen-breathing bacteria appear.',
   },
   glaciation: {
     name: 'Global Glaciation',
@@ -42,7 +43,7 @@ export const ERAS = {
     name: 'Volcanic Upheaval',
     desc: 'New vents tear open across the sea floor. Sulfur spreads through the water and ash dims the sun.',
     temp: 4, light: 0.7, uv: 0.35, o2: 0.45, tox: 0.22, food: 0.9, extraVents: 3,
-    hint: 'Sulfur rises everywhere. Sulfide enzymes protect; symbionts profit.',
+    hint: 'Sulfur rises everywhere. Sulfide enzymes protect; sulfur metabolism profits.',
   },
   bloom: {
     name: 'Age of Blooms',
@@ -111,14 +112,14 @@ export class Environment {
         const y = j * GRID_CS;
         const k = i + j * n;
         const along = ((x - S / 2) * sx + (y - S / 2) * sy) / S; // -0.7..0.7
-        const d = 0.5 + 0.9 * fbm(nDepth, x / 1300, y / 1300, 4) + 0.75 * along;
+        const d = 0.5 + 0.9 * fbm(nDepth, x / 900, y / 900, 4) + 0.75 * along;
         this.depth[k] = clamp(d, 0, 1);
       }
     }
 
     // Vents in deep water, spread apart.
-    this.vents = this.placeSpots(3, (d) => d > 0.6, 1000);
-    this.seeps = this.placeSpots(2, (d) => d > 0.35 && d < 0.75, 900, this.vents);
+    this.vents = this.placeSpots(3, (d) => d > 0.6, 650);
+    this.seeps = this.placeSpots(2, (d) => d > 0.35 && d < 0.75, 550, this.vents);
 
     // Cold water: patches pushed toward one perpendicular side of the slope.
     const px = -sy;
@@ -129,7 +130,7 @@ export class Environment {
         const y = j * GRID_CS;
         const k = i + j * n;
         const side = ((x - S / 2) * px + (y - S / 2) * py) / S;
-        const c = fbm(nCold, x / 1100, y / 1100, 3) + side * 1.1;
+        const c = fbm(nCold, x / 750, y / 750, 3) + side * 1.1;
         this.cold[k] = smoothstep(0.18, 0.45, c);
       }
     }
@@ -141,16 +142,16 @@ export class Environment {
         const k = i + j * n;
         const depth = this.depth[k];
         const cold = this.cold[k];
-        let t = 25 - 13 * depth - 15 * cold + 2.5 * fbm(nTemp, x / 600, y / 600, 2);
+        let t = 25 - 13 * depth - 15 * cold + 2.5 * fbm(nTemp, x / 420, y / 420, 2);
         let tox = 0;
         for (const v of this.vents) {
           const d2 = (x - v.x) ** 2 + (y - v.y) ** 2;
-          t += 27 * Math.exp(-d2 / (2 * 170 * 170));
-          tox += 0.68 * Math.exp(-d2 / (2 * 240 * 240));
+          t += 27 * Math.exp(-d2 / (2 * 125 * 125));
+          tox += 0.68 * Math.exp(-d2 / (2 * 175 * 175));
         }
         for (const s of this.seeps) {
           const d2 = (x - s.x) ** 2 + (y - s.y) ** 2;
-          tox += 0.65 * Math.exp(-d2 / (2 * 210 * 210));
+          tox += 0.65 * Math.exp(-d2 / (2 * 150 * 150));
         }
         this.tempBase[k] = t;
         this.toxBase[k] = Math.min(1, tox);
@@ -158,11 +159,11 @@ export class Environment {
 
         // Currents: curl of a noise potential gives swirling, divergence-free flow.
         const e = 8;
-        const psi = (xx, yy) => fbm(nFlow, xx / 900, yy / 900, 2);
+        const psi = (xx, yy) => fbm(nFlow, xx / 650, yy / 650, 2);
         const dpdy = (psi(x, y + e) - psi(x, y - e)) / (2 * e);
         const dpdx = (psi(x + e, y) - psi(x - e, y)) / (2 * e);
-        this.curX[k] = dpdy * 9000;
-        this.curY[k] = -dpdx * 9000;
+        this.curX[k] = dpdy * 3000;
+        this.curY[k] = -dpdx * 3000;
       }
     }
   }
@@ -199,7 +200,17 @@ export class Environment {
   }
 
   /** Full local conditions at (x, y) under the given global modifiers. */
-  sampleWith(x, y, mods, out = {}) {
+  /** Daylight from 0.25 (night) to 1 (noon). The first minutes are morning. */
+  get dayLight() {
+    const ph = (this.time / DAY_LENGTH + 0.1) % 1;
+    const sun = Math.sin(ph * Math.PI * 2);
+    return 0.25 + 0.75 * clamp(0.5 + sun * 0.9, 0, 1);
+  }
+  get isNight() {
+    return this.dayLight < 0.45;
+  }
+
+  sampleWith(x, y, mods, out = {}, day = this.dayLight) {
     const depth = this.gridValue(this.depth, x, y);
     const lightBase = this.gridValue(this.lightBase, x, y);
     let temp = this.gridValue(this.tempBase, x, y) + mods.temp;
@@ -207,9 +218,9 @@ export class Environment {
     for (const v of this.extraVents) {
       if (v.strength <= 0.01) continue;
       const d2 = (x - v.x) ** 2 + (y - v.y) ** 2;
-      if (d2 > 700 * 700) continue;
-      temp += 30 * v.strength * Math.exp(-d2 / (2 * 150 * 150));
-      tox += 0.7 * v.strength * Math.exp(-d2 / (2 * 230 * 230));
+      if (d2 > 500 * 500) continue;
+      temp += 30 * v.strength * Math.exp(-d2 / (2 * 115 * 115));
+      tox += 0.7 * v.strength * Math.exp(-d2 / (2 * 170 * 170));
     }
     // Vents keep their surroundings warm even during glaciation.
     if (mods.temp < 0) {
@@ -217,13 +228,16 @@ export class Environment {
       temp -= mods.temp * 0.7 * ventWarmth;
     }
     tox = clamp(tox + mods.tox * (0.35 + 0.65 * depth), 0, 1);
-    const light = clamp(lightBase * mods.light, 0, 1.3);
-    const uv = lightBase * lightBase * mods.uv;
+    // Habitat light ignores the time of day; light and UV follow the sun.
+    const habitatLight = clamp(lightBase * mods.light, 0, 1.3);
+    const light = habitatLight * day;
+    const uv = lightBase * lightBase * mods.uv * day;
     const o2 = clamp(mods.o2 * (0.5 + 0.5 * lightBase) + this.gridValue(this.o2Local, x, y) - tox * 0.35, 0, 1.2);
     out.depth = depth;
     out.temp = temp;
     out.tox = tox;
     out.light = light;
+    out.habitatLight = habitatLight;
     out.uv = uv;
     out.o2 = o2;
     out.cold = this.gridValue(this.cold, x, y);
@@ -242,9 +256,9 @@ export class Environment {
       const dx = x - v.x;
       const dy = y - v.y;
       const d2 = dx * dx + dy * dy;
-      if (d2 > 400 * 400 || d2 < 1) continue;
+      if (d2 > 300 * 300 || d2 < 1) continue;
       const d = Math.sqrt(d2);
-      const push = 14 * s * Math.exp(-d2 / (2 * 180 * 180));
+      const push = 5 * s * Math.exp(-d2 / (2 * 130 * 130));
       out.x += (dx / d) * push;
       out.y += (dy / d) * push;
     }
@@ -255,8 +269,9 @@ export class Environment {
     if (e.temp > 34 && e.tox > 0.35) return 'vents';
     if (e.tox > 0.4) return 'seeps';
     if (e.temp < 9) return 'frigid';
-    if (e.light > 0.55) return 'shallows';
-    if (e.light > 0.22) return 'twilight';
+    const l = e.habitatLight ?? e.light;
+    if (l > 0.55) return 'shallows';
+    if (l > 0.22) return 'twilight';
     return 'abyss';
   }
 
@@ -312,7 +327,7 @@ export class Environment {
   }
 
   openVents(count) {
-    const spots = this.placeSpots(count, (d) => d > 0.3, 700, this.vents.concat(this.seeps));
+    const spots = this.placeSpots(count, (d) => d > 0.3, 480, this.vents.concat(this.seeps));
     for (const s of spots) this.extraVents.push({ x: s.x, y: s.y, strength: 0, extra: true });
     this.newVents = spots;
   }
@@ -360,7 +375,7 @@ export class Environment {
     const step = 3;
     for (let j = 2; j < this.n - 2; j += step) {
       for (let i = 2; i < this.n - 2; i += step) {
-        const e = this.sampleWith(i * GRID_CS, j * GRID_CS, mods, tmp);
+        const e = this.sampleWith(i * GRID_CS, j * GRID_CS, mods, tmp, 0.7);
         const b = acc[this.classify(e)];
         b.n++;
         b.temp += e.temp;

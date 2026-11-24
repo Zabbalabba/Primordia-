@@ -1,4 +1,5 @@
-// Behaviour for AI-controlled cells: flee, hunt, graze, seek comfortable water.
+// Behaviour for AI-controlled cells: flee, hunt, graze, seek comfortable
+// water, look for hosts (symbiont bacteria), and go dormant when it helps.
 
 import { envStress, autotrophIncome } from './biology.js';
 import { clamp } from './util.js';
@@ -13,6 +14,25 @@ function envUtility(ph, e) {
   return -s.total * 60 + autotrophIncome(ph, e) * 1.5;
 }
 
+/** Can `o` hurt `c`? (as far as c can tell, given how clearly it senses) */
+function dangerOf(o, c, clarity, d) {
+  const ph = o.ph;
+  if (clarity === 0) return o.r > c.r * 1.3 && d < 50 + c.r ? 0.5 : 0;
+  let k = 0;
+  if (ph.bite > 0 && o.r > c.r * 0.55) k = Math.max(k, (ph.bite * 3) / (c.hp + 6));
+  if (ph.lytic > 0 && o.r < c.r * 2.5) k = Math.max(k, (ph.lytic * 3) / (c.hp + 6));
+  if (ph.engulf && c.r < o.r * 0.6 && !c.cyst) k = Math.max(k, 1.6);
+  return k * Math.min(2, o.r / c.r + 0.4);
+}
+
+function canEat(c, o) {
+  const ph = c.ph;
+  if (ph.engulf && o.r < c.r * 0.55) return true;
+  if (ph.bite > 0 && o.r < c.r * 1.4) return true;
+  if (ph.lytic > 0 && o.r < c.r * 2.2) return true;
+  return false;
+}
+
 export function think(c, world, dt) {
   const ai = c.ai;
   ai.timer -= dt;
@@ -24,12 +44,16 @@ export function think(c, world, dt) {
   const vis2 = vis * vis;
   const base2 = ph.sight.base * ph.sight.base;
   const clarity = ph.sight.clarity;
+  const sp = world.species.get(c.speciesId);
+  const symbiont = sp && sp.symbiont;
   let fx = 0;
   let fy = 0;
   let threat = 0;
   let nearestThreat = Infinity;
   let prey = null;
   let preyScore = 0;
+  let host = null;
+  let hostD = Infinity;
   let crowd = 0;
 
   world.cellHash.query(c.x, c.y, vis, (o) => {
@@ -39,30 +63,36 @@ export function think(c, world, dt) {
     const d2 = dx * dx + dy * dy;
     if (d2 > vis2) return;
     const d = Math.sqrt(d2) + 0.001;
-    if (d < 45 + c.r) crowd++;
+    if (d < 30 + c.r) crowd++;
     if (o.speciesId === c.speciesId) return;
-    // Sight is directional: eyes see far where they face, little elsewhere.
     let range = vis;
     if (d2 > base2) {
       range = rangeToward(c, Math.atan2(dy, dx));
       if (d > range) return;
     }
-    // Without eyes a cell can't tell a hunter from a harmless grazer, so any
-    // large shape is a possible threat. With eyes it can see the jaw.
-    const looksDangerous = clarity === 0 ? o.r > c.r * 0.9 && (o.ph.bite > 0 || d < 70 + c.r) : o.ph.bite > 0 && o.r > c.r * 0.55;
-    if (looksDangerous) {
-      const bite = o.ph.bite > 0 ? o.ph.bite : 6;
-      const danger = ((bite * 3) / (c.hp + 6)) * (o.r / c.r) * (1 - d / range);
+    if (symbiont) {
+      // Aerobic bacteria look for a larger simple cell to live inside.
+      if (!o.ph.euk && !o.guest && o.r > c.r * 1.15 && !o.cyst) {
+        const dd = d - (o.isPlayer ? 120 : 0);
+        if (dd < hostD) {
+          hostD = dd;
+          host = o;
+        }
+      }
+      return;
+    }
+    const danger = dangerOf(o, c, clarity, d) * (1 - d / range);
+    if (danger > 0) {
       fx -= (dx / d) * danger;
       fy -= (dy / d) * danger;
       threat += danger;
       if (d < nearestThreat) nearestThreat = d;
     }
-    if (ph.bite > 0 && o.r < c.r * 1.25) {
-      let score = (o.r / c.r + 0.3) / (d + 30);
+    if (clarity > 0 && canEat(c, o) && !o.cyst) {
+      let score = (o.r / c.r + 0.3) / (d + 20);
       if (o.ph.spike > 0) score *= 0.55;
       if (o.ph.toxin > 0) score *= 0.6;
-      if (o.ph.counts.armor > 1) score *= 0.7;
+      if (o.ph.capsule) score *= 0.75;
       if (score > preyScore) {
         preyScore = score;
         prey = o;
@@ -71,15 +101,43 @@ export function think(c, world, dt) {
   });
   c.crowd = crowd;
 
+  // The rotifer's feeding current: get away from its mouth.
+  for (const g of world.giants) {
+    if (!g.mouth) continue;
+    const dx = g.mouth.x - c.x;
+    const dy = g.mouth.y - c.y;
+    const d = Math.hypot(dx, dy) || 1;
+    if (d < 230) {
+      const w = 2.5 * (1 - d / 230);
+      fx -= (dx / d) * w;
+      fy -= (dy / d) * w;
+      threat += w;
+      nearestThreat = Math.min(nearestThreat, d);
+    }
+  }
+
+  // Dormancy: ride out what can't be escaped.
+  if (ph.cyst) {
+    if (!c.cyst && ((c.stressTotal > 0.025 && c.energy < ph.maxEnergy * 0.5) || (threat > 1.5 && nearestThreat < 25 + c.r && c.hp < ph.maxHP * 0.6))) {
+      world.setCyst(c, true);
+    } else if (c.cyst && c.stressTotal <= 0.002 && threat < 0.3 && ph.cystTime - c.cystT > 4) {
+      world.setCyst(c, false);
+    }
+  }
+  if (c.cyst) {
+    c.ctrl.thrust = 0;
+    return;
+  }
+
   const hunger = 1 - c.energy / ph.maxEnergy;
   let food = null;
   let foodScore = Infinity;
-  if (ph.plantEff > 0.15 || ph.meatEff > 0.15) {
+  if (ph.particleEff > 0.2 || ph.meatEff > 0.2) {
     const r = vis * 0.85;
     world.foodHash.query(c.x, c.y, r, (f) => {
       if (f.eaten) return;
-      const eff = f.meat ? ph.meatEff : ph.plantEff;
-      if (eff < 0.25) return;
+      const eff = f.meat ? ph.meatEff : ph.particleEff;
+      if (eff < 0.2) return;
       const d = Math.hypot(f.x - c.x, f.y - c.y);
       if (d > r) return;
       if (d > ph.sight.base && d > rangeToward(c, Math.atan2(f.y - c.y, f.x - c.x)) * 0.85) return;
@@ -98,7 +156,7 @@ export function think(c, world, dt) {
   const here = envUtility(ph, c.env);
   const stressed = c.stressTotal > 0.0005;
   if (stressed || ph.photo > 0 || ph.chemo > 0 || (ai.envProbe = (ai.envProbe || 0) + 1) % 4 === 0) {
-    const dist = 150;
+    const dist = 100;
     let best = here;
     let bx = 0;
     let by = 0;
@@ -107,7 +165,7 @@ export function think(c, world, dt) {
       const a = off + (i / DIRS) * Math.PI * 2;
       const px = c.x + Math.cos(a) * dist;
       const py = c.y + Math.sin(a) * dist;
-      if (px < 60 || py < 60 || px > world.size - 60 || py > world.size - 60) continue;
+      if (px < 40 || py < 40 || px > world.size - 40 || py > world.size - 40) continue;
       const u = envUtility(ph, world.env.sample(px, py, tmpEnv));
       if (u > best) {
         best = u;
@@ -118,7 +176,6 @@ export function think(c, world, dt) {
     envUrgency = clamp((best - here) * 0.8, 0, 3);
     ex = bx * envUrgency;
     ey = by * envUrgency;
-    ai.envDir = { x: bx, y: by, u: envUrgency };
   }
 
   let dx = 0;
@@ -130,15 +187,19 @@ export function think(c, world, dt) {
     dx = fx;
     dy = fy;
     thrust = 1;
-    boost = nearestThreat < 70 + c.r;
-    if (ph.toxin > 0 && nearestThreat < 110 + c.r) world.releaseToxin(c);
-  } else if (prey && hunger > 0.15 && (!food || preyScore * 25 > 1 / foodScore)) {
+    boost = nearestThreat < 45 + c.r;
+    if (ph.toxin > 0 && nearestThreat < 60 + c.r) world.releaseToxin(c);
+  } else if (symbiont && host) {
+    ai.mode = 'seek';
+    dx = host.x - c.x;
+    dy = host.y - c.y;
+    thrust = 0.9;
+  } else if (prey && hunger > 0.15 && (!food || preyScore * 20 > 1 / foodScore)) {
     ai.mode = 'hunt';
-    // Lead the target a little.
-    dx = prey.x + prey.vx * 0.35 - c.x;
-    dy = prey.y + prey.vy * 0.35 - c.y;
+    dx = prey.x + prey.vx * 0.3 - c.x;
+    dy = prey.y + prey.vy * 0.3 - c.y;
     thrust = 1;
-    boost = dx * dx + dy * dy < (90 + c.r) ** 2 && c.energy > ph.maxEnergy * 0.2;
+    boost = dx * dx + dy * dy < (50 + c.r) ** 2 && c.energy > ph.maxEnergy * 0.2;
   } else if (food && hunger > 0.08) {
     ai.mode = 'forage';
     dx = food.x - c.x;
@@ -156,15 +217,13 @@ export function think(c, world, dt) {
   dx /= len;
   dy /= len;
   if (ai.mode !== 'flee') {
-    // Stress overrides appetite: a burning cell leaves even if food is near.
     const w = stressed ? 1.6 : ai.mode === 'wander' ? 1.2 : 0.4;
     dx += ex * w;
     dy += ey * w;
     if (stressed && envUrgency > 0.2) thrust = Math.max(thrust, 0.8);
   }
 
-  // Stay away from the world's edge.
-  const m = 180;
+  const m = 120;
   if (c.x < m) dx += (m - c.x) / m;
   if (c.y < m) dy += (m - c.y) / m;
   if (c.x > world.size - m) dx -= (c.x - (world.size - m)) / m;

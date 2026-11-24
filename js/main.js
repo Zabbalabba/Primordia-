@@ -11,6 +11,7 @@ import { PARTS } from './parts.js';
 import { RNG, formatTime } from './util.js';
 import { BIOMES, ERAS } from './environment.js';
 import { SaveStore, deserialize } from './save.js';
+import { Audio } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
 const SIM_DT = 1 / 30;
@@ -33,6 +34,7 @@ const canvas = $('game');
 const hud = new HUD();
 const editor = new Editor(onEditorDone);
 const saves = new SaveStore();
+const audio = new Audio();
 let savedGame = null;
 
 // ---------------------------------------------------------------- worlds
@@ -112,6 +114,7 @@ function continueGame() {
     state.renderer.cam.y = w.player.y;
   }
   setMode('play');
+  audio.setEra(w.env.era.id);
   hud.update(0, w, state.renderer, true);
   hud.toast(`<b>Welcome back.</b> ${w.playerSpecies ? w.playerSpecies.name : 'Your lineage'}, generation ${w.progress.generation}.`, 'good', 5);
 }
@@ -138,16 +141,18 @@ function startGame() {
   state.speed = 1;
   $('btn-speed').textContent = '1×';
   setMode('play');
+  audio.setEra(w.env.era.id);
   hud.update(0, w, state.renderer, true);
   const start = PLAYER_STARTS[state.start];
-  hud.toast(`<b>${name}</b> begins in the ${start.label.toLowerCase()}. Eat, grow, and divide.`, 'good', 6);
-  setTimeout(() => hud.toast('Watch the gauges on the left. Going past your limits hurts.', '', 6), 2500);
+  hud.toast(`<b>${name}</b>, a single bacterium, begins in the ${start.label.toLowerCase()}. Touch food to absorb it, grow, and divide.`, 'good', 7);
+  setTimeout(() => hud.toast('You twitch along on pili: slow, but every cell around you is just as small. Watch the gauges on the left.', '', 7), 3000);
 }
 
 // ---------------------------------------------------------------- screens
 
 function setMode(mode) {
   state.mode = mode;
+  if (mode === 'title') audio.setEra('title');
   $('screen-title').hidden = mode !== 'title';
   $('screen-help').hidden = mode !== 'help';
   $('screen-eco').hidden = mode !== 'eco';
@@ -219,9 +224,9 @@ function showOver(kind) {
   ];
   $('over-stats').innerHTML = stats.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
   if (kind === 'win') {
-    $('over-eyebrow').textContent = 'Milestones complete';
-    $('over-title').textContent = 'Ready for multicellularity';
-    $('over-text').textContent = 'Your lineage has proven it can adapt to a changing sea. In the full game, this is where cells would start to cling together and form the first multicellular creature. You can keep playing this stage.';
+    $('over-eyebrow').textContent = 'Cell stage complete';
+    $('over-title').textContent = 'The first colony';
+    $('over-text').textContent = `From a single bacterium to a colony of complex cells in ${state.world.progress.generation} generations. Cells that stick together and share the work are the first step toward many-celled life. You can keep playing this stage.`;
     $('btn-continue').hidden = false;
   } else {
     const cause = kind.cause || 'unknown causes';
@@ -244,15 +249,19 @@ function handleEvents() {
     if (state.mode === 'title') continue;
     switch (e.type) {
       case 'era':
+        audio.sfx('swell');
+        audio.setEra(e.id);
         hud.toast(`<b>New era: ${e.name}</b><br>${e.desc}`, 'era', 9);
         break;
       case 'vents':
         hud.toast(`<b>${e.count} new vents</b> have opened on the sea floor.`, 'era', 6);
         break;
       case 'ready':
+        audio.sfx('chime');
         hud.toast('<b>Ready to divide.</b> Press R or tap Divide.', 'good', 5);
         break;
       case 'gene':
+        audio.sfx('gene');
         hud.toast(`<b>Gene absorbed: ${e.name}</b>${e.from ? ` from ${e.from}` : ''}. You can now add it when you divide.`, 'gene', 6);
         break;
       case 'eyeTier':
@@ -262,15 +271,69 @@ function handleEvents() {
         hud.toast(`You consumed a <i>${e.name}</i>.`, '', 3);
         break;
       case 'respawn':
+        audio.sfx('death');
         hud.toast(`<b>You died (${e.cause}).</b> You continue as a relative ${Math.round(e.distance)} µm away.`, 'bad', 6);
         break;
       case 'extinct':
+        audio.sfx('death');
         if (playing) setTimeout(() => showOver({ cause: e.cause }), 1200);
         break;
       case 'aging':
         hud.toast('Your cell is getting old. Divide soon to renew it.', 'bad', 5);
         break;
       case 'toxin':
+        audio.sfx('toxin');
+        break;
+      case 'guest':
+        audio.sfx('chime');
+        if (e.kind === 'mito')
+          hud.toast('<b>An aerobic bacterium slipped inside you</b> and is living there. When you next divide, you can keep it as a partner: endosymbiosis.', 'gene', 9);
+        else hud.toast('<b>The cyanobacterium you swallowed is still alive</b> inside you. Divide to keep it as a chloroplast.', 'gene', 9);
+        break;
+      case 'symbionts':
+        hud.toast('<b>Oxygen-breathing bacteria</b> (<i>Protomitos</i>) have appeared. They look for larger cells to live inside. Let one in.', 'era', 9);
+        break;
+      case 'eukaryotes':
+        if (!w.progress.eukaryote) hud.toast('<b>The first complex cells</b> have evolved in the pond. Bigger hunters are coming.', 'era', 7);
+        break;
+      case 'engulf':
+        audio.sfx('engulf');
+        hud.toast(`You engulfed a <i>${e.name}</i>. Digesting…`, '', 3);
+        break;
+      case 'infected':
+        audio.sfx('infect');
+        hud.toast(w.player && w.player.ph.crispr ? '<b>Infected by a virus.</b> Your CRISPR system is fighting it.' : '<b>Infected by a virus.</b> It is copying itself inside you. Rest and eat to fight it off.', 'bad', 6);
+        break;
+      case 'cured':
+        audio.sfx('chime');
+        hud.toast(e.immune ? '<b>Infection cleared.</b> CRISPR keeps a memory: you are now immune to this strain.' : '<b>Infection cleared.</b> CRISPR genes would make you immune next time.', 'good', 6);
+        break;
+      case 'virusStrain':
+        hud.toast('A virus strain has adapted to <b>your species</b>. Viruses target whatever is most common.', 'bad', 7);
+        break;
+      case 'giant':
+        audio.sfx('swell');
+        hud.toast('<b>A rotifer is here.</b> This many-celled animal sucks in everything near its mouth. Stay clear of the swirl.', 'bad', 8);
+        break;
+      case 'colony':
+        audio.sfx('milestone');
+        hud.toast(`<b>Colony of ${e.size}.</b> Your daughter cell stayed attached. The colony moves as one.`, 'good', 6);
+        break;
+      case 'cyst':
+        audio.sfx('cyst');
+        if (e.on) hud.toast('<b>Dormant.</b> Your cell is sealed in a cyst: almost nothing can hurt it, but it can\'t eat. Press C to wake.', '', 5);
+        break;
+      case 'night':
+        hud.toast('Night falls. Photosynthesis stops until morning.', '', 4);
+        break;
+      case 'day':
+        if (w.time > 60) hud.toast('Morning. The light returns.', '', 3);
+        break;
+      case 'playerHit':
+        audio.sfx('hurt');
+        break;
+      case 'ate':
+        audio.sfx(e.kind === 'meat' ? 'eat' : 'absorb');
         break;
       case 'speciation':
       case 'extinction':
@@ -295,9 +358,10 @@ function checkGoals(dt) {
     if (!state.goalsDone.has(g.id) && g.done(w)) {
       state.goalsDone.add(g.id);
       hud.toast(`<b>Milestone:</b> ${g.text}`, 'good', 5);
+      audio.sfx('milestone');
     }
   }
-  if (!state.won && state.goalsDone.size === GOALS.length) {
+  if (!state.won && state.goalsDone.has('colony')) {
     state.won = true;
     setTimeout(() => showOver('win'), 1500);
   }
@@ -305,12 +369,24 @@ function checkGoals(dt) {
 
 function onEditorDone(info) {
   setMode('play');
+  audio.sfx('divide');
+  if (info.symbiosis === 'mito') {
+    audio.sfx('milestone');
+    hud.toast('<b>You are a complex cell now.</b> The bacterium lives on as your mitochondrion. New parts are open to you: pseudopods, cilia, food vacuoles, eyespots.', 'gene', 10);
+  }
+  if (info.symbiosis === 'cyano') hud.toast('<b>Chloroplast acquired.</b> You can photosynthesise like an alga.', 'gene', 6);
   const parts = [];
   if (info.mutation) parts.push(`mutation: ${info.mutation}`);
   if (info.cost) parts.push(`${info.cost} DNA spent`);
   hud.toast(`<b>Divided.</b> Generation ${state.world.player.generation}${parts.length ? ` · ${parts.join(' · ')}` : ''}.`, 'good', 5);
   if (info.newGene) hud.toast(`${PARTS[info.newGene].name} is now part of your genome.`, 'gene', 5);
   saveGame();
+}
+
+function toggleCyst() {
+  const w = state.world;
+  if (!w || !w.player || !w.player.ph.cyst) return;
+  w.toggleCyst(w.player);
 }
 
 function tryDivide() {
@@ -346,6 +422,11 @@ window.addEventListener('keydown', (e) => {
     else if (m === 'help') setMode(state.returnMode);
   } else if (e.code === 'KeyH') {
     if (m === 'play') openHelp('play');
+  } else if (e.code === 'KeyC') {
+    if (m === 'play') toggleCyst();
+  } else if (e.code === 'KeyM') {
+    audio.toggleMute();
+    syncAudioUI();
   }
 });
 window.addEventListener('keyup', (e) => state.keys.delete(e.code));
@@ -427,6 +508,7 @@ $('btn-reroll').addEventListener('click', rerollName);
 $('btn-howto').addEventListener('click', () => openHelp('title'));
 $('btn-help2').addEventListener('click', () => openHelp('pause'));
 $('btn-divide').addEventListener('click', tryDivide);
+$('btn-cyst').addEventListener('click', toggleCyst);
 $('btn-toxin').addEventListener('click', () => state.world.player && state.world.releaseToxin(state.world.player));
 $('btn-eco').addEventListener('click', () => setMode(state.mode === 'eco' ? 'play' : 'eco'));
 $('btn-pause').addEventListener('click', () => setMode('pause'));
@@ -502,7 +584,7 @@ function frame(now) {
       // Slow drift across the pond behind the title.
       r.cam.x = w.size / 2 + Math.cos(now / 30000) * 900;
       r.cam.y = w.size / 2 + Math.sin(now / 24000) * 700;
-      r.cam.zoom = 0.9;
+      r.cam.span = 620;
     }
     if (state.mode !== 'editor') {
       r.update(simulating ? dt : 0);
@@ -532,8 +614,80 @@ function frame(now) {
       }
     }
   } else if (w) w.events.length = 0;
+  updateAudio(dt);
   requestAnimationFrame(frame);
 }
+
+// ---------------------------------------------------------------- sound
+
+let dangerTimer = 0;
+let danger = 0;
+/** How threatened the player is right now (0–1), for the music's danger layer. */
+function dangerLevel(w) {
+  const p = w.player;
+  if (!p) return 0;
+  let d = p.infection ? 0.45 : 0;
+  const reach = 160 + p.r * 4;
+  w.cellHash.query(p.x, p.y, reach, (o) => {
+    if (o === p || o.dead || o.speciesId === p.speciesId || o.cyst) return;
+    const ph = o.ph;
+    const can = (ph.bite > 0 && o.r > p.r * 0.55) || (ph.lytic > 0 && o.r < p.r * 2.5) || (ph.engulf && p.r < o.r * 0.6);
+    if (!can) return;
+    const dist = Math.hypot(o.x - p.x, o.y - p.y) - o.r - p.r;
+    if (dist < reach) d = Math.max(d, 1 - Math.max(0, dist) / reach);
+  });
+  for (const g of w.giants) {
+    const m = g.mouth || g;
+    const dist = Math.hypot(m.x - p.x, m.y - p.y);
+    if (dist < 520) d = Math.max(d, 1.1 - dist / 520);
+  }
+  return Math.min(1, d);
+}
+
+function updateAudio(dt) {
+  const w = state.world;
+  if (!audio.ready) return;
+  const playing = w && w.player && state.mode !== 'title' && state.mode !== 'over';
+  dangerTimer -= dt;
+  if (dangerTimer <= 0) {
+    dangerTimer = 0.4;
+    danger = playing && state.mode === 'play' ? dangerLevel(w) : 0;
+  }
+  const env = playing ? w.player.env : null;
+  const light = env ? Math.min(1, env.light * 1.3) : 0.6;
+  const night = w ? Math.max(0, Math.min(1, 1 - w.env.dayLight * 1.6)) : 0;
+  audio.update(dt, { mode: state.mode, light, night: state.mode === 'title' ? 0 : night, danger });
+}
+
+function syncAudioUI() {
+  const st = audio.settings;
+  $('vol-music').value = st.music;
+  $('vol-sfx').value = st.sfx;
+  const on = !st.muted;
+  for (const id of ['btn-sound', 'btn-sound-title']) {
+    const b = $(id);
+    b.setAttribute('aria-pressed', String(on));
+    b.classList.toggle('off', !on);
+  }
+  $('btn-sound').title = on ? 'Sound on (M)' : 'Sound off (M)';
+  $('btn-sound-title').textContent = on ? 'Sound: on' : 'Sound: off';
+}
+$('vol-music').addEventListener('input', (e) => audio.setMusicVolume(Number(e.target.value)));
+$('vol-sfx').addEventListener('input', (e) => {
+  audio.setSfxVolume(Number(e.target.value));
+  audio.sfx('absorb');
+});
+for (const id of ['btn-sound', 'btn-sound-title']) {
+  $(id).addEventListener('click', () => {
+    audio.toggleMute();
+    syncAudioUI();
+  });
+}
+// A soft tick for every button press.
+document.addEventListener('click', (e) => {
+  if (e.target instanceof Element && e.target.closest('button')) audio.sfx('click');
+});
+syncAudioUI();
 
 // ---------------------------------------------------------------- boot
 
@@ -586,4 +740,4 @@ $('btn-install').addEventListener('click', async () => {
 });
 
 // Debug handle for the console.
-window.primordia = { state, cloneGenome, editor, saves };
+window.primordia = { state, cloneGenome, editor, saves, audio };

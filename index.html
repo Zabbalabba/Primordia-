@@ -27,6 +27,7 @@
 
   <!-- ================= HUD ================= -->
   <div id="hud" hidden>
+    <div class="hud-left">
     <section class="panel vitals" aria-label="Your cell">
       <div class="vitals-head">
         <span id="hud-species" class="species-name">—</span>
@@ -38,20 +39,24 @@
       <div class="vitals-foot">
         <span class="dna" title="DNA points, spent in the editor"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 1c0 4 8 4 8 7s-8 3-8 7M12 1c0 4-8 4-8 7s8 3 8 7M5 4h6M5 12h6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><b id="hud-dna">0</b> DNA</span>
         <span class="lineage" title="Living members of your lineage"><b id="hud-lineage">1</b> alive</span>
-        <span class="sight" id="hud-sight" title="How clearly you see. Better eyes reveal more.">Sight: Blurry</span>
+        <span class="phase-chip" id="hud-phase">Simple cell</span>
+        <span class="sight" id="hud-sight" title="How clearly you sense. Chemoreceptors and eyes reveal more.">Sight: Blurry</span>
         <span class="diet" id="hud-diet">Grazer</span>
       </div>
+      <div class="status-row" id="hud-status"></div>
     </section>
 
     <section class="panel envpanel" aria-label="Local conditions">
       <div class="panel-title"><span id="hud-biome">Sunlit Shallows</span></div>
       <div id="env-gauges"></div>
     </section>
+    </div>
 
     <section class="panel erapanel" aria-label="Era">
       <div class="era-name" id="hud-era">Primordial Warmth</div>
       <div class="era-bar"><i id="hud-era-bar"></i></div>
       <div class="era-next">Next: <b id="hud-era-next">Great Oxidation</b> in <span id="hud-era-time">4:00</span></div>
+      <div class="day-row"><span id="hud-day">Day</span><div class="day-bar"><i id="hud-day-bar"></i></div></div>
       <canvas id="minimap" aria-label="Map"></canvas>
     </section>
 
@@ -65,9 +70,11 @@
     <div class="actions">
       <button id="btn-divide" class="btn primary" hidden>Divide <kbd>R</kbd></button>
       <button id="btn-toxin" class="btn" hidden>Toxin <kbd>E</kbd></button>
+      <button id="btn-cyst" class="btn" hidden>Cyst <kbd>C</kbd></button>
       <button id="btn-sprint" class="btn touch-only">Sprint</button>
       <button id="btn-eco" class="btn">Ecosystem <kbd>Tab</kbd></button>
       <button id="btn-speed" class="btn" title="Simulation speed">1×</button>
+      <button id="btn-sound" class="btn" aria-label="Sound" title="Sound (M)">♪</button>
       <button id="btn-pause" class="btn" aria-label="Pause">❚❚</button>
     </div>
   </div>
@@ -97,6 +104,7 @@
         <button id="btn-start" class="btn primary big">Begin</button>
         <button id="btn-howto" class="btn ghost">How to play</button>
         <button id="btn-install" class="btn ghost" hidden>Install app</button>
+        <button id="btn-sound-title" class="btn ghost" type="button" aria-pressed="true">Sound: on</button>
       </div>
     </div>
   </div>
@@ -107,25 +115,25 @@
       <h2>How to play</h2>
       <div class="help-grid">
         <div>
-          <h3>Swim and eat</h3>
-          <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys to swim, or hold the mouse button to swim toward the pointer. <kbd>Shift</kbd> sprints at a high energy cost. On a touchscreen, hold a finger where you want to go and use the Sprint button.</p>
-          <p>Mouths only work on the side they face. Filter mouths eat algae, bacteria and detritus; jaws bite cells and eat meat.</p>
+          <h3>Life at cell scale</h3>
+          <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys to swim, or hold the mouse button (or a finger) where you want to go. <kbd>Shift</kbd> or Sprint pushes harder for a lot of energy.</p>
+          <p>Water is thick for something this small: you stop the moment your motor stops, and currents carry you. You start as a bacterium that twitches along on <b>pili</b>. A <b>rotary flagellum</b> runs and tumbles; <b>chemoreceptors</b> steer the tumbles.</p>
         </div>
         <div>
-          <h3>Grow and divide</h3>
-          <p>Surplus energy fills the <b>Division</b> bar. When it is full, press <kbd>R</kbd> to divide and open the editor. Spend DNA on new parts, and pick one free mutation shaped by what this generation went through.</p>
-          <p>Each division also adds a sibling to your lineage. If you die, you continue as your nearest relative. If the whole lineage dies, it’s over.</p>
+          <h3>Feed and divide</h3>
+          <p>A simple cell <b>absorbs</b> food it touches through its membrane, or makes its own from light or sulfur. Surplus energy fills the <b>Division</b> bar; press <kbd>R</kbd> to divide and open the editor.</p>
+          <p>Spend DNA on parts, and take one free mutation shaped by what this generation went through. The editor shows how your parts work together, and where they get in each other’s way.</p>
         </div>
         <div>
-          <h3>Read the water</h3>
-          <p>Every spot has a temperature, light, UV, oxygen and sulfur level. The gauges on the left show where you stand against your tolerances. Going past a limit hurts.</p>
-          <p>Eras change the whole sea every few minutes, and the forecast tells you what’s coming. The AI species evolve under the same pressure.</p>
+          <h3>Simple cell → complex cell → colony</h3>
+          <p>After oxygen appears, <b>oxygen-breathing bacteria</b> look for a larger cell to live in. Let one slip inside, then divide: keep it as a partner and you become a <b>complex cell</b> with a mitochondrion, a nucleus and new parts (pseudopods, cilia, food vacuoles, eyes).</p>
+          <p>Complex cells can <b>engulf</b> smaller cells whole. With <b>adhesion proteins</b>, daughters stay attached: a colony of 4 completes the stage.</p>
         </div>
         <div>
-          <h3>Gain new parts</h3>
-          <p>Without eyes, other cells are blurry glows beyond a short distance. An <b>eyespot</b> shows shapes, an <b>eye cup</b> tells threats from prey, an <b>ocelloid</b> identifies species and spots hunters off-screen. Eyes see farthest where they face. Living a generation with an eye lets it evolve to the next tier.</p>
-          <p>You start with only a few parts unlocked. Others come from mutations, or from <b>horizontal gene transfer</b>: eating cells or their remains can give you their genes.</p>
-          <p><kbd>Tab</kbd> opens the ecosystem view, <kbd>P</kbd> pauses, and the mouse wheel zooms. Progress saves automatically; pick it up again with Continue on the title screen.</p>
+          <h3>Dangers</h3>
+          <p>Each spot has a temperature, light, UV, oxygen and sulfur level; the gauges show where you stand. Eras change the whole sea, and nights stop photosynthesis.</p>
+          <p><b>Viruses</b> target whatever species is most common; CRISPR genes give lasting immunity. A <b>rotifer</b> may pass by: stay out of its feeding swirl. A <b>cyst</b> (<kbd>C</kbd>) lets you sleep through almost anything, but you can’t eat.</p>
+          <p><kbd>Tab</kbd> ecosystem, <kbd>P</kbd> pause, <kbd>M</kbd> sound, mouse wheel zooms. Progress saves automatically.</p>
         </div>
       </div>
       <button class="btn primary" data-close>Got it</button>
@@ -142,6 +150,7 @@
     </header>
 
     <section class="ed-offers">
+      <div class="ed-symbiosis" id="ed-symbiosis" hidden></div>
       <div class="ed-section-title">Mutations <span class="muted">· pick one for free. These come from the pressures your cell faced.</span></div>
       <div id="ed-offer-list" class="offer-list"></div>
     </section>
@@ -167,6 +176,7 @@
         <div class="ed-sliders">
           <label>Size <span id="ed-size-val"></span><input id="ed-size" type="range" min="0.6" max="2.2" step="0.05"></label>
           <label>Membrane <span id="ed-mem-val"></span><input id="ed-mem" type="range" min="0" max="1" step="0.05"></label>
+          <label id="ed-shape-wrap">Shape <span id="ed-shape-val"></span><input id="ed-shape" type="range" min="0" max="1" step="0.05"></label>
           <label>Colour<input id="ed-hue" type="range" min="0" max="359" step="1"></label>
           <label>Name<input id="ed-name" type="text" maxlength="32" autocomplete="off"></label>
         </div>
@@ -175,6 +185,8 @@
       <aside class="ed-stats">
         <div class="ed-section-title">Body</div>
         <div id="ed-stat-list" class="stat-list"></div>
+        <div class="ed-section-title">How your parts work together</div>
+        <div id="ed-links" class="links-list"></div>
         <div class="ed-section-title">Sight</div>
         <div class="sight-box">
           <canvas id="ed-sight" aria-label="Diagram of how far your cell can see in each direction"></canvas>
@@ -212,6 +224,8 @@
           <canvas id="eco-chart" aria-label="Population over time"></canvas>
           <div class="ed-section-title">Living species <span id="eco-count" class="muted"></span></div>
           <div id="eco-species" class="eco-species"></div>
+          <div class="ed-section-title">Your lineage <span class="muted">· one body per generation</span></div>
+          <div id="eco-lineage" class="eco-lineage"></div>
         </div>
         <div class="eco-right">
           <div class="ed-section-title">Milestones</div>
@@ -232,6 +246,13 @@
         <button class="btn primary" data-close>Resume</button>
         <button class="btn" id="btn-save-now">Save now</button>
         <button class="btn" id="btn-help2">How to play</button>
+      </div>
+      <div class="sound-settings">
+        <label>Music <input id="vol-music" type="range" min="0" max="1" step="0.05"></label>
+        <label>Effects <input id="vol-sfx" type="range" min="0" max="1" step="0.05"></label>
+        <p class="muted small">M mutes. On iPhone, sound follows the silent switch.</p>
+      </div>
+      <div class="stack">
         <button class="btn ghost" id="btn-quit">Back to title</button>
       </div>
     </div>
