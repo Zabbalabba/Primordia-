@@ -48,6 +48,7 @@ function makeAttractWorld() {
 
 function setWorld(w) {
   state.world = w;
+  w.respawnMode = respawnMode;
   if (!state.renderer) state.renderer = new Renderer(canvas, w);
   else {
     state.renderer.world = w;
@@ -67,7 +68,8 @@ function saveMeta() {
 }
 
 function saveGame(cloud = true) {
-  if (!hasLineage()) return;
+  // While you choose a relative there is no player cell; the last save stands.
+  if (!hasLineage() || state.world.pendingRespawn) return;
   if (installable) keepSaves();
   saves.save(state.world, saveMeta(), { cloud });
 }
@@ -158,6 +160,7 @@ function setMode(mode) {
   $('screen-eco').hidden = mode !== 'eco';
   $('screen-pause').hidden = mode !== 'pause';
   $('screen-over').hidden = mode !== 'over';
+  $('screen-relative').hidden = mode !== 'choose';
   if (mode !== 'editor') editor.open_ && editor.close();
   hud.show(mode !== 'title' && mode !== 'editor');
   if (mode === 'eco') renderEco(state.world);
@@ -270,9 +273,19 @@ function handleEvents() {
       case 'kill':
         hud.toast(`You consumed a <i>${e.name}</i>.`, '', 3);
         break;
-      case 'respawn':
+      case 'respawn': {
+        const which = { developed: 'your most developed relative', nearest: 'your nearest relative', random: 'a random relative' }[e.kind] || 'a relative';
+        if (!e.chosen) audio.sfx('death');
+        hud.toast(
+          `<b>You died (${e.cause}).</b> You continue as ${which}: generation ${e.generation}, ${e.euk ? 'complex' : 'simple'} cell, ${Math.round(e.distance)} µm away.`,
+          'bad',
+          6
+        );
+        break;
+      }
+      case 'chooseRelative':
         audio.sfx('death');
-        hud.toast(`<b>You died (${e.cause}).</b> You continue as a relative ${Math.round(e.distance)} µm away.`, 'bad', 6);
+        showRelativeChoice();
         break;
       case 'extinct':
         audio.sfx('death');
@@ -383,6 +396,81 @@ function onEditorDone(info) {
   saveGame();
 }
 
+// ---------------------------------------------------------------- after death
+
+const RESPAWN_KEY = 'primordia.respawn';
+const RESPAWN_KINDS = ['developed', 'nearest', 'random'];
+function loadRespawnMode() {
+  try {
+    const v = localStorage.getItem(RESPAWN_KEY);
+    return v === 'developed' || v === 'nearest' || v === 'random' ? v : 'ask';
+  } catch {
+    return 'ask';
+  }
+}
+let respawnMode = loadRespawnMode();
+function setRespawnMode(v) {
+  respawnMode = v;
+  if (state.world) state.world.respawnMode = v;
+  $('set-respawn').value = v;
+  try {
+    localStorage.setItem(RESPAWN_KEY, v);
+  } catch {
+    /* not critical */
+  }
+}
+$('set-respawn').value = respawnMode;
+$('set-respawn').addEventListener('change', (e) => setRespawnMode(e.target.value));
+
+function showRelativeChoice() {
+  const w = state.world;
+  const pending = w.pendingRespawn;
+  if (!pending) return;
+  const rel = w.relatives(pending);
+  $('rel-title').textContent = `Continue as one of ${rel.length} relatives`;
+  $('rel-text').textContent = `Your cell died of ${pending.cause}. Your lineage lives on. Pick who to play as next.`;
+  $('rel-remember').checked = false;
+  const box = $('rel-options');
+  box.innerHTML = '';
+  const labels = { developed: 'Most developed', nearest: 'Nearest', random: 'Random' };
+  RESPAWN_KINDS.forEach((kind, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'rel-opt';
+    const cell = kind === 'random' ? null : w.relativeChoice(pending, kind);
+    if (cell) {
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = 128;
+      const ctx = cv.getContext('2d');
+      ctx.scale(2, 2);
+      const r = cell.ph.euk ? 15 + 2 * cell.genome.size : 9 + 7 * cell.genome.size;
+      drawCell(ctx, cell.genome, r, { x: 32, y: 32, heading: -Math.PI / 2, phase: cell.phase }, 0.5, { wobble: 0.5, detail: true });
+      b.appendChild(cv);
+    } else b.insertAdjacentHTML('beforeend', '<span class="r-q" aria-hidden="true">?</span>');
+    const d = cell ? Math.round(Math.hypot(cell.x - pending.x, cell.y - pending.y)) : 0;
+    const info = cell
+      ? `Gen ${cell.generation} · ${cell.ph.euk ? 'complex' : 'simple'} cell · ${cell.genome.parts.length} parts<br>${d} µm away${cell.attachedTo === pending.dead ? ' · in your colony' : ''}`
+      : 'Any living member of your lineage';
+    b.insertAdjacentHTML('beforeend', `<span><span class="r-name">${labels[kind]}</span><br><span class="r-info">${info}</span></span><kbd>${i + 1}</kbd>`);
+    b.addEventListener('click', () => chooseRelative(kind));
+    box.appendChild(b);
+  });
+  setMode('choose');
+}
+
+function chooseRelative(kind) {
+  const w = state.world;
+  if (!w.pendingRespawn) return;
+  if ($('rel-remember').checked) setRespawnMode(kind);
+  const p = w.continueAs(w.pendingRespawn, kind);
+  if (!p) return; // extinct: the event handler shows the end screen
+  // Mark the toast as already announced by the death sound.
+  for (const e of w.events) if (e.type === 'respawn') e.chosen = true;
+  state.renderer.cam.x = p.x;
+  state.renderer.cam.y = p.y;
+  setMode('play');
+}
+
 function toggleCyst() {
   const w = state.world;
   if (!w || !w.player || !w.player.ph.cyst) return;
@@ -422,6 +510,8 @@ window.addEventListener('keydown', (e) => {
     else if (m === 'help') setMode(state.returnMode);
   } else if (e.code === 'KeyH') {
     if (m === 'play') openHelp('play');
+  } else if (m === 'choose' && (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3')) {
+    chooseRelative(RESPAWN_KINDS[Number(e.code.slice(5)) - 1]);
   } else if (e.code === 'KeyC') {
     if (m === 'play') toggleCyst();
   } else if (e.code === 'KeyM') {
@@ -462,6 +552,13 @@ canvas.addEventListener(
   { passive: false }
 );
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+// Belt and braces against selection and the iOS long-press callout while steering.
+canvas.addEventListener('selectstart', (e) => e.preventDefault());
+canvas.addEventListener('dragstart', (e) => e.preventDefault());
+canvas.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+document.addEventListener('selectstart', (e) => {
+  if (state.mode === 'play' && !(e.target instanceof HTMLInputElement)) e.preventDefault();
+});
 
 function applyControls() {
   const w = state.world;
@@ -576,6 +673,10 @@ function frame(now) {
       w.step(SIM_DT);
       acc -= SIM_DT;
       steps++;
+      if (w.pendingRespawn) {
+        acc = 0;
+        break;
+      }
     }
     if (steps >= 8) acc = 0;
   }

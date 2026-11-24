@@ -11,7 +11,7 @@ The **cell stage** follows the real path of early life: a simple bacterium, the 
 - **Install it as an app:** see [Install on a phone](#install-on-a-phone).
 - **Hosting:** `index.html` works as-is on any static host, GitHub Pages included. `npm run build` regenerates `dist/primordia.html` (a self-contained copy) and `dist/artifact.html` (the version published to claude.ai).
 
-Controls: WASD or arrow keys, or hold the mouse button (or your finger) to swim toward the pointer. Shift sprints. E or Space releases toxin. C turns your cell into a dormant cyst (and wakes it). R divides. Tab opens the ecosystem view, P pauses, M mutes and the mouse wheel zooms.
+Controls: WASD or arrow keys, or hold the mouse button (or your finger) to swim toward the pointer. When your cell dies you choose which relative to continue as: the most developed, the nearest or a random one (or set a standing choice in the pause menu). Shift sprints. E or Space releases toxin. C turns your cell into a dormant cyst (and wakes it). R divides. Tab opens the ecosystem view, P pauses, M mutes and the mouse wheel zooms.
 
 ## Install on a phone
 

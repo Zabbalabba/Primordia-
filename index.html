@@ -237,6 +237,17 @@
     </div>
   </div>
 
+  <!-- ================= Choose a relative ================= -->
+  <div id="screen-relative" class="screen modal" hidden>
+    <div class="modal-card relative-card">
+      <p class="eyebrow">Your cell died</p>
+      <h2 id="rel-title">Continue as a relative</h2>
+      <p class="muted" id="rel-text"></p>
+      <div class="rel-options" id="rel-options"></div>
+      <label class="rel-remember"><input type="checkbox" id="rel-remember"> Always choose this, without asking (change it in the pause menu)</label>
+    </div>
+  </div>
+
   <!-- ================= Pause ================= -->
   <div id="screen-pause" class="screen modal" hidden>
     <div class="modal-card small-card">
@@ -248,6 +259,12 @@
         <button class="btn" id="btn-help2">How to play</button>
       </div>
       <div class="sound-settings">
+        <label>If you die <select id="set-respawn">
+          <option value="ask">Ask which relative</option>
+          <option value="developed">Most developed relative</option>
+          <option value="nearest">Nearest relative</option>
+          <option value="random">Random relative</option>
+        </select></label>
         <label>Music <input id="vol-music" type="range" min="0" max="1" step="0.05"></label>
         <label>Effects <input id="vol-sfx" type="range" min="0" max="1" step="0.05"></label>
         <p class="muted small">M mutes. On iPhone, sound follows the silent switch.</p>

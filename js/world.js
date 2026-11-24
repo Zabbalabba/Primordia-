@@ -117,6 +117,8 @@ export class World {
     this.playerSpecies = null;
     this.symbiontSpecies = null;
     this.autopilot = !!opts.autopilot;
+    this.respawnMode = 'ask'; // ask | developed | nearest | random
+    this.pendingRespawn = null;
     this.oxygenTimer = 0;
     this.pressures = new Pressures();
     this.progress = {
@@ -1286,31 +1288,86 @@ export class World {
 
   onPlayerDeath(c) {
     this.emit('playerDied', { cause: c.cause || 'unknown' });
+    const pending = { dead: c, cause: c.cause || 'unknown', x: c.x, y: c.y };
+    const rel = this.relatives(pending);
+    if (!rel.length) return this.lineageExtinct(pending);
+    // Ask the player which relative to continue as, unless there is only one
+    // (or they chose a standing answer, or nobody is playing).
+    if (this.autopilot || rel.length === 1 || this.respawnMode !== 'ask') {
+      return this.continueAs(pending, this.autopilot || rel.length === 1 ? 'nearest' : this.respawnMode);
+    }
+    this.player = null;
+    this.pendingRespawn = pending;
+    this.emit('chooseRelative');
+  }
+
+  /** Living members of the dead player's lineage. */
+  relatives(pending) {
+    const sid = pending.dead.speciesId;
+    return this.cells.filter((o) => !o.dead && o !== pending.dead && o.speciesId === sid);
+  }
+
+  /** How far a relative's body has come: complex cells first, then parts and generations. */
+  development(o) {
+    return (o.ph.euk ? 100 : 0) + o.genome.parts.length * 4 + o.generation;
+  }
+
+  /** The relative each option would pick (random is decided when chosen). */
+  relativeChoice(pending, kind) {
+    const rel = this.relatives(pending);
+    if (!rel.length) return null;
+    const dist = (o) => Math.hypot(o.x - pending.x, o.y - pending.y);
+    if (kind === 'random') return this.rng.pick(rel);
+    if (kind === 'developed') {
+      let best = rel[0];
+      for (const o of rel) {
+        const d = this.development(o) - this.development(best);
+        if (d > 0 || (d === 0 && dist(o) < dist(best))) best = o;
+      }
+      return best;
+    }
+    // Nearest, preferring a member of your colony: the colony carries on.
     let best = null;
     let bd = Infinity;
-    for (const o of this.cells) {
-      if (o.dead || o.speciesId !== c.speciesId) continue;
-      // Prefer a colony member: the colony carries on.
-      const d = Math.hypot(o.x - c.x, o.y - c.y) - (o.attachedTo === c ? 1e5 : 0);
+    for (const o of rel) {
+      const d = dist(o) - (o.attachedTo === pending.dead ? 1e5 : 0);
       if (d < bd) {
         bd = d;
         best = o;
       }
     }
-    if (best) {
-      const wasColony = best.attachedTo === c;
-      best.isPlayer = true;
-      best.attachedTo = null;
-      best.ctrl = { dx: 0, dy: 0, thrust: 0 };
-      for (const o of this.cells) if (o.attachedTo === c) o.attachedTo = wasColony ? best : null;
-      this.player = best;
-      this.emit('respawn', { cause: c.cause || 'unknown', distance: Math.max(0, Math.hypot(best.x - c.x, best.y - c.y)) });
-    } else {
-      this.player = null;
-      this.gameOver = true;
-      this.emit('extinct', { cause: c.cause || 'unknown' });
-    }
+    return best;
   }
+
+  /** Take control of a relative after the player's cell died. */
+  continueAs(pending, kind) {
+    const best = this.relativeChoice(pending, kind);
+    this.pendingRespawn = null;
+    if (!best) return this.lineageExtinct(pending);
+    const c = pending.dead;
+    const wasColony = best.attachedTo === c;
+    best.isPlayer = true;
+    best.attachedTo = null;
+    best.ctrl = { dx: 0, dy: 0, thrust: 0 };
+    for (const o of this.cells) if (o.attachedTo === c) o.attachedTo = wasColony ? best : null;
+    this.player = best;
+    this.emit('respawn', {
+      cause: pending.cause,
+      kind,
+      generation: best.generation,
+      euk: best.ph.euk,
+      distance: Math.max(0, Math.hypot(best.x - pending.x, best.y - pending.y)),
+    });
+    return best;
+  }
+
+  lineageExtinct(pending) {
+    this.pendingRespawn = null;
+    this.player = null;
+    this.gameOver = true;
+    this.emit('extinct', { cause: pending.cause });
+  }
+
 
   /** Called when the player finishes the editor. */
   playerDivide(newGenome, note = '') {

@@ -26,6 +26,11 @@
 
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
+/* A game, not a page: long presses and drags must never select or call out
+   the canvas or the HUD (iOS otherwise highlights the game like an image). */
+body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+input, textarea, select { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+canvas { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-user-drag: none; }
 body {
   background: var(--water);
   color: var(--ink);
@@ -473,3 +478,25 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
 .sound-settings label { display: grid; grid-template-columns: 70px minmax(0, 1fr); align-items: center; gap: 10px; font-size: 13px; color: var(--ink-dim); }
 .sound-settings p { margin: 0; }
 #btn-sound.off, #btn-sound-title.off { opacity: 0.55; text-decoration: line-through; }
+
+/* Choosing a relative after death */
+.relative-card { width: min(640px, 100%); }
+.rel-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 14px 0 12px; }
+.rel-opt {
+  font: inherit; color: var(--ink); text-align: center; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  background: var(--glass); border: 1px solid var(--hair-strong); border-radius: 12px; padding: 12px 10px;
+}
+.rel-opt:hover, .rel-opt:focus-visible { border-color: var(--accent); box-shadow: 0 0 18px rgba(61, 255, 226, 0.18); }
+.rel-opt canvas { width: 64px; height: 64px; }
+.rel-opt .r-q { width: 64px; height: 64px; display: grid; place-items: center; font: 600 30px var(--font-display); color: var(--ink-dim); }
+.rel-opt .r-name { font: 600 14px var(--font-display); }
+.rel-opt .r-info { font-size: 12px; color: var(--ink-dim); line-height: 1.4; }
+.rel-opt kbd { margin-top: 2px; }
+.rel-remember { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--ink-dim); }
+.sound-settings select { font: inherit; font-size: 13px; color: var(--ink); background: rgba(11, 42, 77, 0.8); border: 1px solid var(--hair-strong); border-radius: 8px; padding: 6px 8px; min-width: 0; }
+@media (max-width: 520px) {
+  .rel-options { grid-template-columns: 1fr; }
+  .rel-opt { flex-direction: row; text-align: left; gap: 12px; }
+  .rel-opt canvas, .rel-opt .r-q { width: 48px; height: 48px; flex: none; }
+  .rel-opt kbd { display: none; }
+}

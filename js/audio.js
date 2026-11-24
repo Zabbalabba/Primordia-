@@ -55,8 +55,8 @@ export class Audio {
     this.state = { light: 0.6, night: 0, danger: 0, mode: 'title' };
     this.smooth = { light: 0.6, danger: 0 };
     const unlock = () => this.unlock();
-    window.addEventListener('pointerdown', unlock, { capture: true });
-    window.addEventListener('keydown', unlock, { capture: true });
+    // iOS only lets sound start on a tap's release (pointerup / touchend).
+    for (const ev of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown']) window.addEventListener(ev, unlock, { capture: true });
     document.addEventListener('visibilitychange', () => {
       if (!this.ctx) return;
       if (document.hidden) this.ctx.suspend();
