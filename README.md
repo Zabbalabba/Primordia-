@@ -7,7 +7,8 @@ This is the first playable draft of the **cell stage**.
 ## Play it
 
 - **No setup:** open `dist/primordia.html` in a browser. Everything is in that one file.
-- **From source:** run `npm run serve` (or `python3 -m http.server 8080`) inside this folder, then open http://localhost:8080. ES modules don't load from `file://`, so the source version needs the local server.
+- **From source:** run `npm run serve` (or `python3 -m http.server 8080`) in the repository root, then open http://localhost:8080. ES modules don't load from `file://`, so the source version needs the local server.
+- **Hosting:** `index.html` works as-is on any static host, GitHub Pages included. `npm run build` regenerates `dist/primordia.html` (a self-contained copy) and `dist/artifact.html` (the version published to claude.ai).
 
 Controls: WASD or arrow keys, or hold the mouse button (or your finger) to swim toward the pointer. Shift sprints. E or Space releases toxin. R divides. Tab opens the ecosystem view, P pauses and the mouse wheel zooms.
 
