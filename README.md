@@ -8,9 +8,24 @@ This is the first playable draft of the **cell stage**.
 
 - **No setup:** open `dist/primordia.html` in a browser. Everything is in that one file.
 - **From source:** run `npm run serve` (or `python3 -m http.server 8080`) in the repository root, then open http://localhost:8080. ES modules don't load from `file://`, so the source version needs the local server.
+- **Install it as an app:** see [Install on a phone](#install-on-a-phone).
 - **Hosting:** `index.html` works as-is on any static host, GitHub Pages included. `npm run build` regenerates `dist/primordia.html` (a self-contained copy) and `dist/artifact.html` (the version published to claude.ai).
 
 Controls: WASD or arrow keys, or hold the mouse button (or your finger) to swim toward the pointer. Shift sprints. E or Space releases toxin. R divides. Tab opens the ecosystem view, P pauses and the mouse wheel zooms.
+
+## Install on a phone
+
+Hosted on GitHub Pages, the game is an installable web app: its own icon, full-screen launch and offline play. This uses `manifest.webmanifest`, `icons/`, the Apple tags in `index.html` and the offline cache in `sw.js`.
+
+1. **Turn on GitHub Pages:** in the repository's Settings → Pages, choose *Deploy from a branch*, pick the branch and the root folder, and save. The address appears there after the first deploy, usually within a minute or two.
+2. **iPhone or iPad:** open that address in Safari, tap Share, then **Add to Home Screen**.
+3. **Android:** open it in Chrome and tap **Install app** on the title screen, or use **⋮ → Add to Home screen**.
+
+Saves in the installed app stay on that device: they don't sync with the claude.ai version. The app asks the browser to keep its storage, and home-screen apps aren't subject to Safari's seven-day cleanup of website data.
+
+The offline cache checks the network first, so updates arrive as soon as you're online, and falls back to the cache when offline or when the network is slow. Its cache names start with `primordia-`, because every project on the same GitHub Pages account shares one address, and other apps' caches must be left alone.
+
+Run `npm run build` after changing files so `sw.js` lists the current files under a new version. To regenerate the icons, serve the repository (`npm run serve`) and run `npm run icons`.
 
 ## Saving
 

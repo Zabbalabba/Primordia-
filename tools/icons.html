@@ -1,0 +1,63 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Primordia icons</title></head>
+<body style="margin:0;background:#111">
+<script type="module">
+// Renders the app icon with the game's own cell art. Used by tools/make-icons.cjs.
+import { drawCell, glowSprite } from '../js/cellDraw.js';
+import { makeGenome } from '../js/genome.js';
+
+const P = Math.PI;
+const hero = makeGenome({
+  size: 1,
+  membrane: 0.35,
+  hue: 172,
+  parts: [
+    { t: 'filter', a: 0 },
+    { t: 'flagellum', a: P },
+    { t: 'eyecup', a: 0.55 },
+    { t: 'eyecup', a: -0.55 },
+    { t: 'vacuole' },
+    { t: 'mitochondrion' },
+  ],
+});
+
+/** Draws the icon at `size` px. Content stays inside the central 80% so it survives maskable cropping. */
+window.renderIcon = (size) => {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  const s = size / 512;
+  ctx.scale(s, s);
+  const g = ctx.createRadialGradient(270, 230, 20, 256, 256, 380);
+  g.addColorStop(0, '#0b2b4f');
+  g.addColorStop(0.55, '#061830');
+  g.addColorStop(1, '#020611');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 512, 512);
+  // Marine snow and a few food motes.
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 70; i++) {
+    ctx.fillStyle = `rgba(140, 200, 255, ${0.08 + rnd() * 0.25})`;
+    ctx.beginPath();
+    ctx.arc(rnd() * 512, rnd() * 512, 0.8 + rnd() * 2.2, 0, P * 2);
+    ctx.fill();
+  }
+  for (const [x, y, h] of [[372, 132, 108], [404, 196, 108], [118, 150, 38], [150, 400, 108], [420, 380, 345]]) {
+    ctx.drawImage(glowSprite(h), x - 22, y - 22, 44, 44);
+    ctx.fillStyle = `hsl(${h}, 100%, 80%)`;
+    ctx.fillRect(x - 2.5, y - 2.5, 5, 5);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  // The cell swims up and to the right, its flagellum trailing behind.
+  const heading = -P / 4;
+  const r = 82;
+  const cx = 256 + Math.cos(heading) * r * 1.1;
+  const cy = 256 + Math.sin(heading) * r * 1.1;
+  drawCell(ctx, hero, r, { x: cx, y: cy, heading, thrustLevel: 0.7, phase: 1.2, look: heading }, 1.1, { detail: true, halo: 6 });
+  return c.toDataURL('image/png');
+};
+window.iconsReady = true;
+</script>
+</body></html>

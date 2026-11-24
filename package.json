@@ -8,7 +8,8 @@
     "serve": "python3 -m http.server 8080",
     "simtest": "node tools/simtest.mjs",
     "savetest": "node tools/savetest.mjs",
-    "build": "node tools/build.mjs"
+    "build": "node tools/build.mjs",
+    "icons": "node tools/make-icons.cjs http://localhost:8080"
   },
   "devDependencies": {
     "esbuild": "^0.24.0"

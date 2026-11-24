@@ -66,6 +66,7 @@ function saveMeta() {
 
 function saveGame(cloud = true) {
   if (!hasLineage()) return;
+  if (installable) keepSaves();
   saves.save(state.world, saveMeta(), { cloud });
 }
 
@@ -534,6 +535,49 @@ buildTitle();
 setWorld(makeAttractWorld());
 setMode('title');
 requestAnimationFrame(frame);
+
+// ---------------------------------------------------------------- installable app
+
+// Only the hosted source version (index.html with its manifest) is an
+// installable app; the single-file and claude.ai builds skip all of this.
+const installable = !!document.querySelector('link[rel="manifest"]') && /^https?:$/.test(location.protocol);
+if (installable && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {
+      /* offline play just won't be available */
+    });
+  });
+}
+// Ask the browser to keep saved games even when storage runs low.
+function keepSaves() {
+  try {
+    navigator.storage?.persist?.().catch(() => {});
+  } catch {
+    /* not supported */
+  }
+}
+// Chrome and Edge on Android offer an install prompt; show a button for it.
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installPrompt = e;
+  $('btn-install').hidden = false;
+});
+window.addEventListener('appinstalled', () => {
+  installPrompt = null;
+  $('btn-install').hidden = true;
+});
+$('btn-install').addEventListener('click', async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  try {
+    await installPrompt.userChoice;
+  } catch {
+    /* dismissed */
+  }
+  installPrompt = null;
+  $('btn-install').hidden = true;
+});
 
 // Debug handle for the console.
 window.primordia = { state, cloneGenome, editor, saves };
