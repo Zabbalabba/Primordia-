@@ -88,7 +88,7 @@ export function think(c, world, dt) {
       threat += danger;
       if (d < nearestThreat) nearestThreat = d;
     }
-    if (clarity > 0 && canEat(c, o) && !o.cyst) {
+    if (clarity > 0 && canEat(c, o) && !o.cyst && !(o === ai.ignore && world.time < ai.ignoreUntil)) {
       let score = (o.r / c.r + 0.3) / (d + 20);
       if (o.ph.spike > 0) score *= 0.55;
       if (o.ph.toxin > 0) score *= 0.6;
@@ -200,6 +200,25 @@ export function think(c, world, dt) {
     dy = prey.y + prey.vy * 0.3 - c.y;
     thrust = 1;
     boost = dx * dx + dy * dy < (50 + c.r) ** 2 && c.energy > ph.maxEnergy * 0.2;
+    // Hunters tire: a chase that lands no strike for a few seconds is given
+    // up, and that prey is left alone for a while.
+    const diff = world.diff;
+    if (ai.chasing !== prey) {
+      ai.chasing = prey;
+      ai.chaseStart = world.time;
+    }
+    const lastStrike = Math.max(ai.chaseStart, c.lastStrike || -1e9);
+    if (world.time - lastStrike > diff.chaseTime) {
+      ai.ignore = prey;
+      ai.ignoreUntil = world.time + 10;
+      ai.chasing = null;
+    }
+    // On Easy, a hunter chasing you can't go faster than you normally swim,
+    // so sprinting gets you away.
+    if (prey.isPlayer && diff.chaseCap > 0 && ph.cruise > 0) {
+      thrust = Math.min(thrust, (diff.chaseCap * prey.ph.cruise) / ph.cruise);
+      boost = false;
+    }
   } else if (food && hunger > 0.08) {
     ai.mode = 'forage';
     dx = food.x - c.x;
@@ -207,7 +226,8 @@ export function think(c, world, dt) {
     thrust = hunger > 0.5 ? 0.9 : 0.6;
   } else {
     ai.mode = 'wander';
-    ai.wander += world.rng.gauss() * 0.45;
+    // Run-and-tumble swimmers keep a steadier course between tumbles.
+    ai.wander += world.rng.gauss() * (ph.motor.smooth ? 0.45 : 0.2);
     dx = Math.cos(ai.wander);
     dy = Math.sin(ai.wander);
     thrust = ph.photo > 0 || ph.chemo > 0 ? 0.15 : 0.35;
@@ -229,6 +249,15 @@ export function think(c, world, dt) {
   if (c.x > world.size - m) dx -= (c.x - (world.size - m)) / m;
   if (c.y > world.size - m) dy -= (c.y - (world.size - m)) / m;
 
+  if (ai.mode !== 'hunt') ai.chasing = null;
+  // Cells that steer by tumbling can't change course on a whim: smooth the
+  // wanted direction so small wobbles don't trigger a tumble each time.
+  if (!ph.motor.smooth && ph.motor.rotor > 0 && ai.mode !== 'flee' && ai.sx !== undefined) {
+    dx = ai.sx * 0.5 + dx * 0.5;
+    dy = ai.sy * 0.5 + dy * 0.5;
+  }
+  ai.sx = dx;
+  ai.sy = dy;
   c.ctrl.dx = dx;
   c.ctrl.dy = dy;
   c.ctrl.thrust = thrust;

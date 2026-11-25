@@ -68,8 +68,16 @@ export class Audio {
 
   /** Browsers only allow sound after a tap or key press. */
   unlock() {
+    if (this.settings.muted) return;
+    // iOS mutes web audio in silent mode unless the page asks to play like a
+    // media app (Safari 16.4+). The mute button in the game still works.
+    try {
+      if (navigator.audioSession && navigator.audioSession.type !== 'playback') navigator.audioSession.type = 'playback';
+    } catch {
+      /* not supported */
+    }
     if (this.ctx) {
-      if (this.ctx.state !== 'running' && !this.settings.muted && !document.hidden) this.ctx.resume();
+      if (this.ctx.state !== 'running' && !document.hidden) this.ctx.resume().catch(() => {});
       return;
     }
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -77,12 +85,26 @@ export class Audio {
     try {
       this.ctx = new AC({ latencyHint: 'playback' });
     } catch {
-      return;
+      try {
+        this.ctx = new AC(); // older Safari takes no options
+      } catch {
+        return;
+      }
     }
+    // Older iOS only unlocks after a sound starts inside the tap itself.
+    try {
+      const b = this.ctx.createBuffer(1, 1, 22050);
+      const src = this.ctx.createBufferSource();
+      src.buffer = b;
+      src.connect(this.ctx.destination);
+      src.start(0);
+    } catch {
+      /* harmless */
+    }
+    if (this.ctx.state !== 'running') this.ctx.resume().catch(() => {});
     this.build();
     this.ready = true;
     this.applyVolumes(true);
-    if (this.settings.muted) this.ctx.suspend();
     const now = this.ctx.currentTime;
     this.nextChord = now + 0.3;
     this.nextBell = now + 2;
@@ -127,10 +149,10 @@ export class Audio {
 
     // Pads go through one shared filter with a very slow sweep.
     this.padBus = ctx.createGain();
-    this.padBus.gain.value = 0.16;
+    this.padBus.gain.value = 0.2;
     this.padFilter = ctx.createBiquadFilter();
     this.padFilter.type = 'lowpass';
-    this.padFilter.frequency.value = 900;
+    this.padFilter.frequency.value = 1400;
     this.padFilter.Q.value = 0.8;
     this.padBus.connect(this.padFilter);
     this.padFilter.connect(this.duck);
@@ -146,14 +168,18 @@ export class Audio {
     this.droneGain = ctx.createGain();
     this.droneGain.gain.value = 0.07;
     this.droneGain.connect(this.duck);
-    this.drone = [0, 7, 12].map((iv, i) => {
+    const droneTone = ctx.createBiquadFilter();
+    droneTone.type = 'lowpass';
+    droneTone.frequency.value = 700;
+    droneTone.connect(this.droneGain);
+    this.drone = [0, 7, 12, 0].map((iv, i) => {
       const o = ctx.createOscillator();
-      o.type = i === 1 ? 'triangle' : 'sine';
-      o.frequency.value = mtof(this.mood.root - 24 + iv);
+      o.type = i === 3 ? 'sawtooth' : i === 1 ? 'triangle' : 'sine';
+      o.frequency.value = mtof(this.mood.root - 12 + iv);
       const g = ctx.createGain();
-      g.gain.value = [1, 0.35, 0.4][i];
+      g.gain.value = [1, 0.35, 0.4, 0.18][i];
       o.connect(g);
-      g.connect(this.droneGain);
+      g.connect(droneTone);
       o.start();
       return { o, iv };
     });
@@ -204,12 +230,12 @@ export class Audio {
     pulse.start();
     const df = ctx.createBiquadFilter();
     df.type = 'lowpass';
-    df.frequency.value = 520;
+    df.frequency.value = 900;
     df.connect(am);
     this.dangerOsc = [1, 6].map((iv, i) => {
       const o = ctx.createOscillator();
       o.type = i ? 'triangle' : 'sawtooth';
-      o.frequency.value = mtof(this.mood.root - 24 + iv);
+      o.frequency.value = mtof(this.mood.root - 12 + iv);
       const g = ctx.createGain();
       g.gain.value = i ? 0.5 : 0.35;
       o.connect(g);
@@ -260,8 +286,8 @@ export class Audio {
   applyVolumes(instant = false) {
     if (!this.ready) return;
     const t = this.ctx.currentTime;
-    const m = this.settings.music * 0.9;
-    const s = this.settings.sfx * 0.8;
+    const m = this.settings.music * 1.5;
+    const s = this.settings.sfx * 1.2;
     if (instant) {
       this.music.gain.value = m;
       this.fx.gain.value = s;
@@ -303,7 +329,26 @@ export class Audio {
       return;
     }
     if (m) this.ctx.suspend();
-    else this.ctx.resume();
+    else this.unlock();
+  }
+
+  /** Plain-language sound status for the pause menu. */
+  status() {
+    if (this.settings.muted) return 'Sound is muted.';
+    if (!this.ctx) return 'Sound starts after your first tap.';
+    if (this.ctx.state === 'running') return 'Sound is on.';
+    return 'Sound is paused by the device. Tap "Test sound".';
+  }
+
+  /** A short chime, to check that sound works. */
+  test() {
+    this.unlock();
+    const go = () => {
+      this.last.chime = 0;
+      this.sfx('chime');
+    };
+    if (this.ctx && this.ctx.state !== 'running') this.ctx.resume().then(go, () => {});
+    else go();
   }
 
   // ------------------------------------------------------------ music
@@ -316,8 +361,8 @@ export class Audio {
     this.degree = 0;
     if (!this.ready) return;
     const t = this.ctx.currentTime;
-    for (const d of this.drone) d.o.frequency.setTargetAtTime(mtof(mood.root - 24 + d.iv), t, 2.5);
-    for (const d of this.dangerOsc) d.o.frequency.setTargetAtTime(mtof(mood.root - 24 + d.iv), t, 2.5);
+    for (const d of this.drone) d.o.frequency.setTargetAtTime(mtof(mood.root - 12 + d.iv), t, 2.5);
+    for (const d of this.dangerOsc) d.o.frequency.setTargetAtTime(mtof(mood.root - 12 + d.iv), t, 2.5);
   }
 
   /** Note `step` steps up the current scale from the root (wraps into octaves). */
@@ -345,7 +390,7 @@ export class Audio {
     // Light opens the tone; night closes it.
     const cutoff = 700 + 4200 * light * (1 - 0.6 * night);
     this.toneFilter.frequency.setTargetAtTime(cutoff, t, 0.5);
-    this.padFilter.frequency.setTargetAtTime(500 + 900 * light, t, 1);
+    this.padFilter.frequency.setTargetAtTime(900 + 1400 * light, t, 1);
     const duck = st.mode === 'pause' || st.mode === 'help' ? 0.4 : st.mode === 'editor' || st.mode === 'eco' ? 0.7 : 1;
     this.duck.gain.setTargetAtTime(duck, t, 0.4);
     this.dangerGain.gain.setTargetAtTime(this.smooth.danger * 0.16, t, 0.3);
@@ -378,7 +423,8 @@ export class Audio {
     const steps = [this.degree, this.degree + 2 + this.mood.scale.length, this.degree + 4];
     if (Math.random() < 0.5) steps.push(this.degree + 6 + this.mood.scale.length);
     for (const s of steps) {
-      const f = mtof(this.note(s, -1));
+      // Mid register: phone speakers can't play much below ~150 Hz.
+      const f = mtof(this.note(s, 0));
       const g = ctx.createGain();
       g.gain.setValueAtTime(0, when);
       g.gain.linearRampToValueAtTime(1 / steps.length, when + attack);
@@ -420,7 +466,7 @@ export class Audio {
     mod.connect(modAmt);
     modAmt.connect(car.frequency);
     const g = ctx.createGain();
-    const peak = (echo ? 0.05 : 0.085) * (night > 0.5 ? 0.8 : 1);
+    const peak = (echo ? 0.07 : 0.12) * (night > 0.5 ? 0.8 : 1);
     g.gain.setValueAtTime(0, when);
     g.gain.linearRampToValueAtTime(peak, when + 0.012);
     g.gain.exponentialRampToValueAtTime(0.0005, when + 3.2);
@@ -528,7 +574,7 @@ export class Audio {
         this.bubble(t, 0.05);
         break;
       case 'hurt':
-        this.tone({ type: 'triangle', f0: 150, f1: 55, dur: 0.25, gain: 0.25 });
+        this.tone({ type: 'triangle', f0: 340, f1: 120, dur: 0.25, gain: 0.25 });
         this.hiss({ f0: 900, f1: 300, dur: 0.18, gain: 0.18, q: 1.2 });
         break;
       case 'divide': {
@@ -555,7 +601,7 @@ export class Audio {
         this.hiss({ filter: 'highpass', f0: 600, f1: 4000, dur: 0.45, gain: 0.12, attack: 0.04, q: 0.7 });
         break;
       case 'engulf':
-        this.tone({ f0: 240, f1: 70, dur: 0.45, gain: 0.22, lp: 900 });
+        this.tone({ type: 'triangle', f0: 420, f1: 140, dur: 0.45, gain: 0.22, lp: 1400 });
         this.bubble(t + 0.1, 0.07);
         this.bubble(t + 0.22, 0.05);
         break;
@@ -568,7 +614,7 @@ export class Audio {
         [0, 4, 7 + sc].forEach((s) => this.tone({ when: t + 2, f0: N(s, -1), dur: 4, gain: 0.07, attack: 0.3, type: 'triangle', lp: 1600 }));
         break;
       case 'death':
-        this.tone({ type: 'triangle', f0: N(2, 0), f1: N(0, -2), dur: 2, gain: 0.14, attack: 0.05, lp: 1200 });
+        this.tone({ type: 'triangle', f0: N(2, 1), f1: N(0, -1), dur: 2, gain: 0.14, attack: 0.05, lp: 1800 });
         break;
       case 'cyst':
         this.tone({ f0: 420, f1: 180, dur: 0.6, gain: 0.12, lp: 800 });

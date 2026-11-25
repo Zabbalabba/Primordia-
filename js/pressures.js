@@ -36,6 +36,10 @@ export class Pressures {
 
   reset() {
     this.gen = blank();
+    // Plain seconds spent in each situation, for the reasons shown to the
+    // player (gen holds weighted values for choosing offers).
+    this.secs = {};
+    this.hits = 0;
     this.genTime = 0;
     this.attackDir = { front: 0, side: 0, rear: 0 };
     this.attackKind = { bite: 0, lytic: 0, spike: 0, toxin: 0 };
@@ -66,6 +70,26 @@ export class Pressures {
     inst.predation = this.recentHit > 0 ? 1 + this.recentHit * 0.05 : inst.chased * 0.4;
     this.recentHit = Math.max(0, (this.recentHit || 0) - dt * 20);
 
+    // Seconds actually hurt (hit*) or close to a limit (near*), and so on.
+    const secs = this.secs;
+    const add = (key, on) => {
+      if (on) secs[key] = (secs[key] || 0) + dt;
+    };
+    for (const key of ['cold', 'heat', 'uv', 'o2', 'tox']) {
+      add(`hit_${key}`, s[key] > 0);
+      add(`near_${key}`, inst[key] > 0);
+    }
+    add('lowEnergy', cell.energy < ph.maxEnergy * 0.2);
+    add('starving', cell.energy <= 0.01);
+    add('light', inst.light > 0);
+    add('night', inst.night > 0);
+    add('sulfur', inst.sulfur > 0);
+    add('oxygen', inst.oxygen > 0);
+    add('dark', inst.dark > 0);
+    add('chased', inst.chased > 0);
+    add('preyNear', inst.preyNear > 0);
+    add('infected', inst.virus > 0);
+
     const k = 1 - Math.exp(-dt / 12);
     for (const key of Object.keys(inst)) {
       this.gen[key] += inst[key] * dt;
@@ -77,6 +101,7 @@ export class Pressures {
 
   onHit(amount, kind, relAngle, cell) {
     const frac = amount / cell.ph.maxHP;
+    this.hits = (this.hits || 0) + 1;
     this.recentHit = (this.recentHit || 0) + frac * 100;
     const a = Math.abs(relAngle);
     if (a < 0.8) this.attackDir.front += frac;
@@ -98,6 +123,11 @@ export class Pressures {
     return this.genTime > 0 ? this.gen[key] / this.genTime : 0;
   }
 
+  /** Share of this generation's time spent in a situation (0..1). */
+  time(key) {
+    return this.genTime > 0 ? Math.min(1, ((this.secs || {})[key] || 0) / this.genTime) : 0;
+  }
+
   mainAttackDir() {
     const d = this.attackDir;
     if (d.front + d.side + d.rear < 0.05) return null;
@@ -111,60 +141,99 @@ export class Pressures {
     const c = countParts(genome);
     const euk = genome.domain === 'euk';
     const f = (k) => this.frac(k);
-    const pct = (k) => `${Math.round(Math.min(1, f(k)) * 100)}%`;
+    // Reasons quote plain time shares, and only facts that really happened.
+    const T = (k) => this.time(k);
+    const pc = (v) => `${Math.max(1, Math.round(v * 100))}%`;
+    const hits = this.hits || 0;
     const dir = this.mainAttackDir();
     const dirAngle = dir === 'rear' ? Math.PI : dir === 'side' ? Math.PI / 2 : 0;
     const dirText = dir ? { front: 'from the front', side: 'from the side', rear: 'from behind' }[dir] : '';
+    const SPONT = 'A spontaneous mutation.';
     const pool = [];
     const part = (t, w, reason, angle) => {
       if (!canAddPart(genome, t) || w <= 0 || PARTS[t].symbiont) return;
       pool.push({ kind: 'part', part: t, w, reason, angle });
     };
+    // "X hurt you for N% of the time", or "came close to your limit".
+    const envReason = (key, hurtText, nearText) => {
+      const hit = T(`hit_${key}`);
+      const near = T(`near_${key}`);
+      if (hit >= 0.02) return hurtText(pc(hit));
+      if (near >= 0.02) return nearText(pc(near));
+      return SPONT;
+    };
 
-    part('antifreeze', f('cold') * 6, `You spent ${pct('cold')} of this generation in water near or below your cold limit.`);
-    part('heatshock', f('heat') * 6, `You spent ${pct('heat')} of this generation in water near or above your heat limit.`);
-    part('pigment', f('uv') * 6, `Ultraviolet light burned you for ${pct('uv')} of this generation.`);
-    part('catalase', f('o2') * 6, `Oxygen levels were near or above your tolerance ${pct('o2')} of the time.`);
-    part('detox', f('tox') * 6, `Sulfur levels were near or above your tolerance ${pct('tox')} of the time.`);
+    part('antifreeze', f('cold') * 6, envReason('cold', (p) => `Cold water hurt you ${p} of this generation.`, (p) => `You spent ${p} of this generation close to your cold limit.`));
+    part('heatshock', f('heat') * 6, envReason('heat', (p) => `Hot water hurt you ${p} of this generation.`, (p) => `You spent ${p} of this generation close to your heat limit.`));
+    part('pigment', f('uv') * 6, envReason('uv', (p) => `Ultraviolet light burned you ${p} of this generation.`, (p) => `UV light was close to your limit ${p} of this generation.`));
+    part('catalase', f('o2') * 6, envReason('o2', (p) => `Oxygen poisoned you ${p} of this generation.`, (p) => `Oxygen was close to your limit ${p} of this generation.`));
+    part('detox', f('tox') * 6, envReason('tox', (p) => `Sulfur poisoned you ${p} of this generation.`, (p) => `Sulfur was close to your limit ${p} of this generation.`));
     part('crispr', f('virus') * 5, 'A virus got into your cell. A genetic memory of viruses would make you immune to strains you survive.');
     part('capsule', f('virus') * 2.5, 'A virus got into your cell. A slime capsule makes it hard for viruses to attach.');
 
     const pred = f('predation');
-    if (pred > 0.02) {
-      part('armor', pred * 5 + (dir === 'rear' ? 0.5 : 0), `Predators hit you ${dirText || 'repeatedly'}. A plate there would block most damage.`, dirAngle);
-      part('spike', pred * 4, `You were attacked ${dirText || 'often'}. A spine there punishes attackers.`, dirAngle);
-      part('capsule', pred * 3, 'Predators kept attacking. A slippery capsule is harder to bite or swallow.');
-      part('cellwall', pred * 2, 'Predators kept attacking. A rigid wall makes you much tougher.');
-      part('toxin', pred * 2, 'Predators kept attacking. A toxin gland can drive them off.', Math.PI);
-      part(euk ? 'flagellum' : 'rotor', pred * 2 + f('chased') * 2, 'You were chased often. A flagellum means faster escapes.', Math.PI);
-      part('cyst', pred * 1.5, 'Predators kept catching you. A cyst wall lets you seal up and wait them out.');
+    const hitText = hits > 0 ? `Predators hit you ${hits} time${hits > 1 ? 's' : ''}${dirText ? `, mostly ${dirText}` : ''}.` : T('chased') > 0.02 ? `Predators chased you ${pc(T('chased'))} of this generation.` : '';
+    // Any hit counts, even a single one early in a long generation.
+    const pw = Math.max(pred, hits > 0 ? 0.1 + 0.03 * Math.min(hits, 10) : 0);
+    if (pw > 0.02 && hitText) {
+      part('armor', pw * 5 + (dir === 'rear' ? 0.5 : 0), `${hitText} A plate on that side would block most of the damage.`, dirAngle);
+      part('spike', pw * 4, `${hitText} A spine on that side punishes attackers.`, dirAngle);
+      part('capsule', pw * 3, `${hitText} A slippery capsule is hard to grip: lytic tips do half damage and it's harder to swallow.`);
+      part('cellwall', pw * 2, `${hitText} A rigid wall makes you tougher and blunts bites.`);
+      part('toxin', pw * 2, `${hitText} A toxin gland can drive them off.`, Math.PI);
+      part(euk ? 'flagellum' : 'rotor', pw * 2 + f('chased') * 2, `${hitText} A flagellum means faster escapes.`, Math.PI);
+      part('cyst', pw * 1.5, `${hitText} A cyst wall lets you seal up and wait them out.`);
     }
     const starve = f('starve');
-    part('storage', starve * 3 + f('night') * (c.thylakoid + c.chloroplast > 0 ? 2 : 0.3), `You were close to starving ${pct('starve')} of the time. Storage would buffer lean stretches like the night.`);
-    part('transporter', starve * 2 + (c.transporter === 0 ? 1 : 0), 'Food you touched slipped past you. More transporters absorb more of it.');
-    if (c.thylakoid < 3) part('thylakoid', f('light') * (1 + starve * 3), `You spent ${pct('light')} of this generation in well-lit water.`);
-    if (c.thylakoid + c.chloroplast > 0) part('gasvesicle', f('light') * 0.8 + 0.2, 'Gas vesicles would keep your photosynthesis floating in good light.');
-    if (c.chemosynth < 2) part('chemosynth', f('sulfur') * (1.5 + starve * 3), `You spent ${pct('sulfur')} of this generation in sulfur-rich water.`);
-    if (euk) part('mitochondrion', f('oxygen') * 1.2, `Oxygen was plentiful ${pct('oxygen')} of the time. More mitochondria would use it.`);
-    part('cyst', (f('cold') + f('heat') + f('tox')) * 1.2, 'Harsh water kept hurting you. A cyst wall lets you go dormant until it passes.');
+    const photo = c.thylakoid + c.chloroplast > 0;
+    {
+      // Storage: offered for hungry stretches, or for nights without sun.
+      const wHungry = starve * 3;
+      const wNight = f('night') * (photo ? 2 : 0.3);
+      const reason =
+        wHungry >= wNight && T('lowEnergy') >= 0.03
+          ? `You were low on energy ${pc(T('lowEnergy'))} of this generation. Storage granules would buffer lean stretches.`
+          : T('night') >= 0.05 && photo
+            ? `Night fell for ${pc(T('night'))} of this generation and your photosynthesis stopped. Storage granules bank daytime surplus for the dark.`
+            : 'Storage granules would let you bank surplus energy for lean times.';
+      part('storage', wHungry + wNight, reason);
+    }
+    part(
+      'transporter',
+      starve * 2 + (c.transporter === 0 ? 1 : 0),
+      c.transporter === 0
+        ? 'Without membrane transporters, most food you touch slips past you.'
+        : T('lowEnergy') >= 0.03
+          ? `You were low on energy ${pc(T('lowEnergy'))} of this generation. More transporters absorb more of the food you touch.`
+          : 'More transporters absorb more of the food you touch.'
+    );
+    if (c.thylakoid < 3 && T('light') >= 0.05) part('thylakoid', f('light') * (1 + starve * 3), `You spent ${pc(T('light'))} of this generation in well-lit water.`);
+    if (photo) part('gasvesicle', f('light') * 0.8 + 0.2, 'Gas vesicles would keep your photosynthesis floating in good light.');
+    if (c.chemosynth < 2 && T('sulfur') >= 0.05) part('chemosynth', f('sulfur') * (1.5 + starve * 3), `You spent ${pc(T('sulfur'))} of this generation in sulfur-rich water.`);
+    if (euk && T('oxygen') >= 0.05) part('mitochondrion', f('oxygen') * 1.2, `Oxygen was plentiful ${pc(T('oxygen'))} of this generation. More mitochondria would use it.`);
+    {
+      const harsh = Math.max(T('hit_cold'), T('hit_heat'), T('hit_tox'));
+      part('cyst', (f('cold') + f('heat') + f('tox')) * 1.2, harsh >= 0.02 ? `Harsh water hurt you ${pc(harsh)} of this generation. A cyst wall lets you go dormant until it passes.` : 'A cyst wall would let you go dormant through bad times.');
+    }
+    const preyNear = T('preyNear');
     if (euk) {
-      if (!c.foodvacuole) part('foodvacuole', f('preyNear') * 2 + starve + 0.6, 'Smaller cells were often within reach. A food vacuole lets you swallow them.');
+      if (!c.foodvacuole) part('foodvacuole', f('preyNear') * 2 + starve + 0.6, preyNear >= 0.05 ? `Smaller cells were within reach ${pc(preyNear)} of this generation. A food vacuole lets you swallow them.` : 'A food vacuole would let you swallow smaller cells whole.');
       if (c.foodvacuole && !c.pseudopod) part('pseudopod', 1.5, 'Pseudopods would let your food vacuole wrap around prey.', 0);
       if (c.foodvacuole && c.lysosome < 2) part('lysosome', 1.2, 'Your food vacuole digests slowly. Lysosomes speed it up.');
-      if (!c.cytostome) part('cytostome', f('preyNear') * 1.2, 'Cells your size were within reach. A cytostome bites into them.', 0);
-      part('cilia', 0.5, 'A spontaneous mutation.');
+      if (!c.cytostome && preyNear >= 0.05) part('cytostome', f('preyNear') * 1.2, `Cells your size were within reach ${pc(preyNear)} of this generation. A cytostome bites into them.`, 0);
+      part('cilia', 0.5, SPONT);
       // The way to the next stage: cells that stick together.
       if (!c.adhesion && progress && progress.eukaryote && progress.generation - progress.eukaryoteGen >= 2) {
         pool.push({ kind: 'part', part: 'adhesion', w: 1.6, reason: 'Your daughter cells keep bumping into each other. Sticky proteins could keep them together.' });
       }
     } else {
-      part('pili', 0.4, 'A spontaneous mutation.', 0);
-      part('rotor', 0.35, 'A spontaneous mutation.', Math.PI);
-      part('lytic', f('preyNear') * 0.8, 'Other cells were often within reach. A lytic tip dissolves the cells you ram.', 0);
+      part('pili', 0.4, SPONT, 0);
+      part('rotor', 0.35, SPONT, Math.PI);
+      if (preyNear >= 0.05) part('lytic', f('preyNear') * 0.8, `Other cells were within reach ${pc(preyNear)} of this generation. A lytic tip dissolves the cells you ram.`, 0);
     }
 
     const [lo, hi] = sizeLimits(genome);
-    if (genome.size < hi - 0.05) pool.push({ kind: 'size', delta: euk ? 0.2 : 0.1, w: 0.3 + f('cold') * 1.5 + pred * 1.5, reason: f('cold') > 0.2 ? 'Larger cells hold warmth and broaden temperature tolerance.' : 'Larger cells are harder to swallow.' });
+    if (genome.size < hi - 0.05) pool.push({ kind: 'size', delta: euk ? 0.2 : 0.1, w: 0.3 + f('cold') * 1.5 + pred * 1.5, reason: T('near_cold') >= 0.1 ? 'Larger cells hold warmth and broaden temperature tolerance.' : 'Larger cells are harder to swallow and hold more health.' });
     if (genome.size > lo + 0.05) pool.push({ kind: 'size', delta: euk ? -0.2 : -0.1, w: 0.3 + starve * 2, reason: 'Smaller cells absorb food more efficiently and divide sooner.' });
     if (genome.membrane < 0.9) pool.push({ kind: 'membrane', delta: 0.2, w: 0.3 + pred * 2 + f('tox') * 1, reason: 'A thicker membrane absorbs damage.' });
 
@@ -178,12 +247,22 @@ export class Pressures {
     const used = new Set();
     // Senses come quickly: a sensing offer is guaranteed until the lineage can
     // tell threats from prey (chemoreceptors, then eyes for complex cells).
-    const sense = this.senseOffer(genome, pred, f('dark'), pct('dark'));
+    const sense = this.senseOffer(genome, pred, f('dark'), pc(T('dark')), hits);
     if (sense) {
       if (sense.guaranteed) {
         offers.push(decorate(sense, genome));
         used.add(sense.part || sense.to);
       } else pool.push(sense);
+    }
+    // Attacked this generation? Then one offer is always a defence.
+    if (hits > 0 && hitText) {
+      const defence = pool.filter((o) => o.kind === 'part' && PARTS[o.part].cat === 'Defense' && o.part !== 'crispr');
+      if (defence.length) {
+        const pick = rng.weighted(defence);
+        pool.splice(pool.indexOf(pick), 1);
+        offers.push(decorate(pick, genome));
+        used.add(pick.part);
+      }
     }
     while (offers.length < count && pool.length) {
       const pick = rng.weighted(pool);
@@ -197,11 +276,12 @@ export class Pressures {
   }
 
   /** The next step for this lineage's senses, or null. */
-  senseOffer(genome, pred, dark, darkPct) {
+  senseOffer(genome, pred, dark, darkPct, hits = 0) {
     const c = countParts(genome);
     if (genome.domain !== 'euk') {
       if (c.chemoreceptor === 0 && canAddPart(genome, 'chemoreceptor')) {
-        return { kind: 'part', part: 'chemoreceptor', w: 1, reason: 'Things kept bumping into you unannounced. Receptors that taste the water would warn you, and point you toward food.', guaranteed: true };
+        const reason = hits > 0 ? 'Predators reached you before you sensed them. Receptors that taste the water would warn you, and point you toward food.' : 'Receptors that taste the water would tell you what is nearby, and point you toward food.';
+        return { kind: 'part', part: 'chemoreceptor', w: 1, reason, guaranteed: true };
       }
       return null;
     }
@@ -211,7 +291,7 @@ export class Pressures {
     const guaranteed = clarity < 2;
     if (clarity === 0) {
       if (!canAddPart(genome, 'eyespot')) return null;
-      const reason = pred > 0.02 ? 'Attacks came without warning. A patch of light-sensitive pigment would let you see shapes coming.' : dark > 0.2 ? `You spent ${darkPct} of this generation in dark water.` : 'Light-sensitive pigment gathered on your membrane. You would see farther ahead.';
+      const reason = hits > 0 ? 'Attacks came without warning. A patch of light-sensitive pigment would let you see shapes coming.' : dark > 0.2 ? `You spent ${darkPct} of this generation in dark water.` : 'Light-sensitive pigment gathered on your membrane. You would see farther ahead.';
       return { kind: 'part', part: 'eyespot', w, reason, angle: 0.5, guaranteed };
     }
     const counts = countParts(genome);
@@ -220,7 +300,7 @@ export class Pressures {
       .sort((a, b) => PARTS[b.t].tier - PARTS[a.t].tier)[0];
     if (!best) return null;
     const to = PARTS[best.t].evolvesTo;
-    const reason = to === 'eyecup' ? (pred > 0.02 ? 'Hunters looked just like harmless cells. A cupped eye tells them apart.' : 'Your eyespot folded into a shallow cup, so it can sense where light comes from.') : 'A clear lens formed over your eye cup, focusing a sharp image onto it.';
+    const reason = to === 'eyecup' ? (hits > 0 ? 'Hunters looked just like harmless cells. A cupped eye tells them apart.' : 'Your eyespot folded into a shallow cup, so it can sense where light comes from.') : 'A clear lens formed over your eye cup, focusing a sharp image onto it.';
     return { kind: 'upgrade', from: best.t, to, angle: best.a, w, reason, guaranteed: guaranteed && to === 'eyecup' };
   }
 

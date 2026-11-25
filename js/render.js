@@ -4,6 +4,7 @@
 // more about what is in view.
 
 import { drawCell, glowSprite } from './cellDraw.js';
+import { foodLook, drawFoodSprite } from './foodDraw.js';
 import { sightOutline, canSee, glimpseRange, maxRange } from './vision.js';
 import { TAU, clamp, RNG } from './util.js';
 
@@ -210,20 +211,28 @@ export class Renderer {
       ctx.fill();
     }
 
-    // Food: small glowing motes.
-    const foodGlow = s > 0.7;
+    // Food: little algae, bacteria, flakes and fragments that drift and turn.
+    // Zoomed far out they are just glowing motes.
+    const detailed = s > 0.7;
+    const base = detailed ? ctx.getTransform() : null;
     for (const f of world.food) {
       if (!inView(f.x, f.y, 10)) continue;
-      const [hue, sat, size] = FOOD_GLOW[f.kind];
       const fade = f.age > f.life - 5 ? Math.max(0, (f.life - f.age) / 5) : 1;
-      ctx.globalAlpha = fade;
-      if (foodGlow && f.kind !== 'detritus') {
-        const tw = 1 + 0.15 * Math.sin(t * 3 + f.rot * 10);
-        ctx.drawImage(glowSprite(hue, sat), f.x - size * tw, f.y - size * tw, size * 2 * tw, size * 2 * tw);
+      if (detailed) {
+        const look = foodLook(f);
+        const wob = f.kind === 'bacteria' ? Math.sin(t * 6 + f.rot * 9) * 0.18 : 0;
+        const bx = Math.sin(t * 0.7 + f.rot * 3) * 0.4;
+        const by = Math.cos(t * 0.6 + f.rot * 5) * 0.4;
+        ctx.globalAlpha = fade * (f.kind === 'algae' ? 0.85 + 0.15 * Math.sin(t * 2 + f.rot * 10) : 1);
+        drawFoodSprite(ctx, base, look.img, f.x + bx, f.y + by, f.rot + t * look.spin + wob, look.size);
+        continue;
       }
+      const [hue, sat] = FOOD_GLOW[f.kind];
+      ctx.globalAlpha = fade;
       ctx.fillStyle = `hsla(${hue}, ${sat}%, 78%, ${f.kind === 'detritus' ? 0.5 : 0.95})`;
       ctx.fillRect(f.x - 1, f.y - 1, 2, 2);
     }
+    if (base) ctx.setTransform(base);
     ctx.globalAlpha = 1;
 
     // Viruses: tiny host-coloured specks with a hard glint.
@@ -307,7 +316,7 @@ export class Renderer {
         ctx.stroke();
         ctx.globalCompositeOperation = 'source-over';
       }
-      drawCell(ctx, c.genome, c.r, { x: c.x, y: c.y, heading: c.heading, thrustLevel: c.thrustLevel, biteAnim: c.biteAnim, flash: c.flash, phase: c.phase, look, cyst: c.cyst, infected: !!c.infection && (c.isPlayer || clarity >= 2 || c.speciesId === lineage), guest: c.guest, meal: c.meal }, t, {
+      drawCell(ctx, c.genome, c.r, { x: c.x, y: c.y, heading: c.heading, thrustLevel: c.thrustLevel, twitch: c.twitch, tumble: c.tumble, biteAnim: c.biteAnim, flash: c.flash, phase: c.phase, look, cyst: c.cyst, infected: !!c.infection && (c.isPlayer || clarity >= 2 || c.speciesId === lineage), guest: c.guest, meal: c.meal }, t, {
         simple,
         blob,
         blobSat: 25,
@@ -387,6 +396,33 @@ export class Renderer {
         ctx.beginPath();
         ctx.arc(f.x, f.y, f.r * (1.6 - k), 0, TAU);
         ctx.stroke();
+      } else if (f.type === 'absorb') {
+        // Food drawn in through the membrane: it slides toward the middle of
+        // the cell, shrinks and fades, and the membrane ripples where it went in.
+        const c = f.cell;
+        if (!c || c.dead) continue;
+        const e = k * k * (3 - 2 * k);
+        const tx = c.x + (f.x - c.x) * 0.25;
+        const ty = c.y + (f.y - c.y) * 0.25;
+        const x = f.x + (tx - f.x) * e;
+        const y = f.y + (ty - f.y) * e;
+        if (s > 0.7) {
+          const look = foodLook(f);
+          const m = ctx.getTransform();
+          ctx.globalAlpha = 1 - k * k;
+          drawFoodSprite(ctx, m, look.img, x, y, f.rot + k * 3, look.size * (1 - 0.65 * e));
+          ctx.setTransform(m);
+          ctx.globalAlpha = 1;
+        }
+        if (k > 0.35) {
+          const q = (k - 0.35) / 0.65;
+          const ang = Math.atan2(f.y - c.y, f.x - c.x);
+          ctx.strokeStyle = `rgba(200, 255, 230, ${0.55 * (1 - q)})`;
+          ctx.lineWidth = Math.max(0.4, c.r * 0.06);
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, c.r * (1.02 + 0.12 * q), ang - 0.5 - q * 0.4, ang + 0.5 + q * 0.4);
+          ctx.stroke();
+        }
       } else if (f.type === 'eat') {
         ctx.fillStyle = `rgba(200, 255, 220, ${0.7 * (1 - k)})`;
         ctx.beginPath();

@@ -6,6 +6,17 @@ import { CLARITY } from './vision.js';
 
 const $ = (id) => document.getElementById(id);
 
+// What environmental damage is called, and what to do about it.
+const HURT = {
+  heat: { chip: 'Too hot', hint: '<b>Too hot here.</b> Move away from the vents, or evolve heat-shock proteins.' },
+  cold: { chip: 'Too cold', hint: '<b>Too cold here.</b> Find warmer water (near vents or in the sunny shallows), or evolve antifreeze.' },
+  uv: { chip: 'UV burn', hint: '<b>UV light is burning you.</b> Go deeper or into shade, or evolve pigment.' },
+  o2: { chip: 'Oxygen poisoning', hint: '<b>Oxygen is poisoning you.</b> Move away from bright water full of photosynthesizers, or evolve catalase enzymes.' },
+  tox: { chip: 'Sulfur poisoning', hint: '<b>Sulfur is poisoning you.</b> Move away from vents and seeps, or evolve sulfide enzymes.' },
+  starving: { chip: 'Starving', hint: '<b>You are out of energy and starving.</b> Find food, or rest in the light if you photosynthesize.' },
+};
+const HURT_KEY = 'primordia.hudMore';
+
 const GAUGES = [
   { key: 'temp', label: 'Temp', min: -5, max: 50, fmt: (v) => `${v.toFixed(0)}°C`, safe: (ph) => [ph.tMin, ph.tMax], margin: 3 },
   { key: 'light', label: 'Light', min: 0, max: 1.2, fmt: (v) => `${Math.round(v * 100)}%`, safe: null },
@@ -17,6 +28,24 @@ const GAUGES = [
 export class HUD {
   constructor() {
     this.el = $('hud');
+    this.hintAt = {};
+    // Details (cell type, sight, diet) start folded away on small screens.
+    let more = window.innerWidth > 900;
+    try {
+      const v = localStorage.getItem(HURT_KEY);
+      if (v === '1' || v === '0') more = v === '1';
+    } catch {
+      /* default */
+    }
+    this.setMore(more);
+    $('hud-more-btn').addEventListener('click', () => {
+      this.setMore(!this.more);
+      try {
+        localStorage.setItem(HURT_KEY, this.more ? '1' : '0');
+      } catch {
+        /* not critical */
+      }
+    });
     this.timer = 0;
     this.mmTimer = 0;
     this.gaugeEls = {};
@@ -33,6 +62,27 @@ export class HUD {
 
   show(v) {
     this.el.hidden = !v;
+  }
+
+  setMore(v) {
+    this.more = v;
+    $('hud-more-btn').setAttribute('aria-expanded', String(v));
+    $('hud-more-btn').closest('.vitals').classList.toggle('collapsed', !v);
+  }
+
+  /** The main thing hurting the player right now, or null. */
+  hurtOf(p) {
+    const s = p.stress || {};
+    let best = null;
+    let v = 0.0008;
+    for (const k of ['heat', 'cold', 'uv', 'o2', 'tox']) {
+      if ((s[k] || 0) > v) {
+        v = s[k];
+        best = k;
+      }
+    }
+    if (!best && p.starving) return { key: 'starving', rate: p.cyst ? 0.004 : 0.025 };
+    return best ? { key: best, rate: (s.total || v) * (p.cyst ? 0.1 : 1) } : null;
   }
 
   update(dt, world, renderer, force = false) {
@@ -62,16 +112,34 @@ export class HUD {
     const colony = world.progress.colony || 1;
     $('hud-phase').textContent = colony > 1 ? `Colony of ${colony}` : ph.euk ? 'Complex cell' : 'Simple cell';
     $('hud-phase').classList.toggle('euk', ph.euk);
+    // Critical status stays visible; the rest folds away with the details.
     const status = [];
+    const hurt = this.hurtOf(p);
+    if (hurt) {
+      const pct = Math.max(1, Math.round(hurt.rate * 100));
+      status.push(`<span class="st hurt">${HURT[hurt.key].chip} · −${pct}% health/s</span>`);
+      // Explain once in a while what is happening and what helps.
+      const now = performance.now() / 1000;
+      if (!this.hintAt[hurt.key] || now - this.hintAt[hurt.key] > 75) {
+        this.hintAt[hurt.key] = now;
+        this.toast(HURT[hurt.key].hint, 'bad', 6);
+      }
+    }
     if (p.infection) status.push(`<span class="st bad">Virus · ${Math.ceil(p.infection.t)}s</span>`);
     if (p.cyst) status.push(`<span class="st cyst">Dormant · ${Math.ceil(p.cystT)}s</span>`);
     if (p.guest) status.push(`<span class="st guest">${p.guest === 'mito' ? 'Guest: aerobic bacterium' : 'Guest: cyanobacterium'}</span>`);
-    if (p.meal) status.push('<span class="st">Digesting</span>');
-    if (p.immune.size) status.push(`<span class="st good">Immune to ${p.immune.size} virus${p.immune.size > 1 ? 'es' : ''}</span>`);
+    const minor = [];
+    if (p.meal) minor.push('<span class="st">Digesting</span>');
+    if (p.immune.size) minor.push(`<span class="st good">Immune to ${p.immune.size} virus${p.immune.size > 1 ? 'es' : ''}</span>`);
     const html = status.join('');
     if (this.statusHtml !== html) {
       $('hud-status').innerHTML = html;
       this.statusHtml = html;
+    }
+    const minorHtml = minor.join('');
+    if (this.minorHtml !== minorHtml) {
+      $('hud-status-more').innerHTML = minorHtml;
+      this.minorHtml = minorHtml;
     }
     $('btn-cyst').hidden = !ph.cyst;
     $('btn-cyst').textContent = p.cyst ? 'Wake' : 'Cyst';

@@ -88,9 +88,18 @@ const FOOD_TYPES = {
 
 const VIRUS_CAP = 220;
 
+// Difficulty. Easy: hunters can't outrun you while chasing you (sprint gets
+// you away), attacks hurt half as much, you grow faster, and predators stay
+// rare. Normal is the harsher, more realistic pond.
+export const DIFFICULTY = {
+  easy: { label: 'Easy', playerDamage: 0.5, playerGrowth: 1.35, predatorShare: 0.06, chaseCap: 1.0, chaseTime: 4 },
+  normal: { label: 'Normal', playerDamage: 1, playerGrowth: 1, predatorShare: 0.11, chaseCap: 0, chaseTime: 7 },
+};
+
 export class World {
   constructor(seed = (Math.random() * 1e9) | 0, opts = {}) {
     this.seed = seed;
+    this.difficulty = DIFFICULTY[opts.difficulty] ? opts.difficulty : 'easy';
     this.rng = new RNG(seed);
     this.env = new Environment(seed ^ 0x5bd1e995);
     this.size = WORLD_SIZE;
@@ -146,6 +155,10 @@ export class World {
     this.gameOver = false;
     this._cur = { x: 0, y: 0 };
     this._tmpEnv = {};
+  }
+
+  get diff() {
+    return DIFFICULTY[this.difficulty] || DIFFICULTY.easy;
   }
 
   emit(type, data = {}) {
@@ -381,20 +394,23 @@ export class World {
     }
     if (m.rotor > 0) {
       // Run and tumble. Turning means stopping to tumble into a new heading.
+      // Runs last a while before the motor reverses for a tumble, unless the
+      // target is far off course; small errors are corrected during the run.
       c.tumbleCd -= dt;
       if (c.tumble > 0) {
         c.tumble -= dt;
         c.heading += dt * 9 * (c.tumbleDir || 1);
         if (c.tumble <= 0) c.heading = c.tumbleTarget;
       } else if (want) {
-        if (Math.abs(dev) > 0.55 && c.tumbleCd <= 0) {
-          c.tumble = 0.3;
-          c.tumbleCd = 0.65;
+        const far = Math.abs(dev);
+        if ((far > 0.8 && c.tumbleCd <= 0) || (far > 2.3 && c.tumbleCd <= 0.35)) {
+          c.tumble = 0.25;
+          c.tumbleCd = c.isPlayer ? 0.5 : 0.9;
           c.tumbleDir = this.rng.chance(0.5) ? 1 : -1;
           c.tumbleTarget = desired + this.rng.gauss() * ph.tumbleError;
         } else {
           // Small course corrections happen during a run.
-          c.heading += clamp(dev, -0.35 * dt, 0.35 * dt);
+          c.heading += clamp(dev, -0.5 * dt, 0.5 * dt);
           const v = m.rotor * t * (0.35 + 0.65 * Math.max(0, Math.cos(dev)));
           tx += Math.cos(c.heading) * v;
           ty += Math.sin(c.heading) * v;
@@ -543,7 +559,7 @@ export class World {
     // Surplus energy becomes growth toward division (colony members don't divide).
     const reserve = ph.maxEnergy * 0.4;
     if (!c.attachedTo && !c.cyst && c.energy > reserve && c.growth < ph.growthNeeded) {
-      const tr = Math.min(c.energy - reserve, (0.5 + 0.6 * Math.sqrt(area)) * dt);
+      const tr = Math.min(c.energy - reserve, (0.5 + 0.6 * Math.sqrt(area)) * dt * (c.isPlayer ? this.diff.playerGrowth : 1));
       c.growth += tr;
       c.energy -= tr;
     }
@@ -684,12 +700,14 @@ export class World {
       if (p.t === 'cytostome' && A.biteCd <= 0) {
         if (!A.isPlayer && A.ai.mode === 'flee') continue;
         const dealt = this.damage(B, A.ph.bite, A, 'bite');
+        A.lastStrike = this.time;
         A.energy += dealt * A.ph.meatEff;
         A.biteCd = 0.7;
         A.biteAnim = 1;
         this.fx.push({ type: 'bite', x: B.x - nx * B.r, y: B.y - ny * B.r, t: 0, life: 0.4 });
       } else if (p.t === 'lytic' && A.biteCd <= 0) {
         const dealt = this.damage(B, A.ph.lytic, A, 'lytic');
+        A.lastStrike = this.time;
         A.energy += dealt * 0.6;
         A.biteCd = 1.1;
         A.biteAnim = 1;
@@ -732,7 +750,12 @@ export class World {
       }
     }
     amount *= 1 - Math.min(0.6, B.ph.membraneDR);
+    // Slime capsules foil lytic tips (they can't get a grip); walls blunt bites.
+    if (kind === 'lytic' && B.ph.capsule) amount *= 0.5;
+    if (kind === 'lytic' && B.ph.wall) amount *= 0.8;
+    if (kind === 'bite' && B.ph.wall) amount *= 0.65;
     if (B.cyst) amount *= 0.2;
+    if (B.isPlayer || (B.attachedTo && B.attachedTo.isPlayer)) amount *= this.diff.playerDamage;
     const dealt = Math.min(amount, B.hp);
     B.hp -= amount;
     B.flash = 1;
@@ -790,6 +813,11 @@ export class World {
         if (eff <= 0.05) return;
         f.eaten = true;
         c.energy += f.energy * eff;
+        // Show it being drawn in, near the player (or anywhere on the title screen).
+        const p = this.player;
+        if (this.fx.length < 160 && (!p || (Math.abs(c.x - p.x) < 520 && Math.abs(c.y - p.y) < 520))) {
+          this.fx.push({ type: 'absorb', x: f.x, y: f.y, kind: f.kind, r: f.r, rot: f.rot, cell: c, t: 0, life: c.isPlayer ? 0.55 : 0.45 });
+        }
         c.biteAnim = Math.max(c.biteAnim, 0.4);
         if (c.isPlayer) this.playerAte(f, eff);
       });
@@ -1076,9 +1104,12 @@ export class World {
         continue;
       }
       // Soft cap per species keeps one design from filling the whole pond.
-      const share = (sp ? sp.pop : 0) / (this.maxCells * 0.22);
-      if (!this.rng.chance(1 - Math.min(0.97, share * share))) {
-        c.growth = c.ph.growthNeeded * 0.75;
+      // Predators stay much rarer than the cells they eat.
+      const predator = c.ph.lytic > 0 || c.ph.bite > 0 || c.ph.engulf;
+      const hunter = predator && !lineage;
+      const share = (sp ? sp.pop : 0) / (this.maxCells * (hunter ? this.diff.predatorShare : 0.22));
+      if (!this.rng.chance(1 - Math.min(hunter ? 0.995 : 0.97, share * share))) {
+        c.growth = c.ph.growthNeeded * (hunter ? 0.5 : 0.75);
         continue;
       }
       born.push(this.divide(c, lineage));
@@ -1200,7 +1231,6 @@ export class World {
     const gain = { algae: 0.8, bacteria: 1, detritus: 0.45, meat: 1.6 }[f.kind] * Math.min(1, eff + 0.3);
     this.addDNA(gain);
     if (f.genes && this.rng.chance(0.15)) this.tryGeneTransfer(f.genes, 'meat');
-    this.fx.push({ type: 'eat', x: f.x, y: f.y, t: 0, life: 0.4 });
     this.emit('ate', { kind: f.kind });
   }
 

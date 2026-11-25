@@ -13,6 +13,8 @@ The **cell stage** follows the real path of early life: a simple bacterium, the 
 
 Controls: WASD or arrow keys, or hold the mouse button (or your finger) to swim toward the pointer. When your cell dies you choose which relative to continue as: the most developed, the nearest or a random one (or set a standing choice in the pause menu). Shift sprints. E or Space releases toxin. C turns your cell into a dormant cyst (and wakes it). R divides. Tab opens the ecosystem view, P pauses, M mutes and the mouse wheel zooms.
 
+Difficulty is chosen on the title screen. **Easy** (the default): a hunter chasing you can't swim faster than you normally do, so sprinting gets you away; attacks do half damage; you grow 35% faster; and predators stay rare. **Normal** is the harsher, more realistic pond. In both, hunters give up on prey they can't catch after a few seconds.
+
 ## Install on a phone
 
 Hosted on GitHub Pages, the game is an installable web app: its own icon, full-screen launch and offline play. This uses `manifest.webmanifest`, `icons/`, the Apple tags in `index.html` and the offline cache in `sw.js`.
@@ -110,9 +112,13 @@ Living a generation with an eye unlocks its next tier. The camera frames what yo
 - Migrants recolonize empty habitats, and later complex-cell migrants arrive.
 - **Horizontal gene transfer:** eating cells or their remains can unlock their parts for you.
 
+### Look and motion (`js/cellDraw.js`, `js/foodDraw.js`)
+
+Motors move the way the real thing does: pili reach out, stick and retract in time with each pull; a rotary flagellum turns as a helix during runs and goes slack while tumbling, and the body counter-rotates; cilia beat in a travelling (metachronal) wave with a stiff power stroke and a curled recovery; a whip flagellum's wave grows toward its tip; pseudopods flow out at the leading edge. Food is a mix of small algae, diatoms, bacteria, detritus and cell fragments, and eaten food is drawn into the cell through the membrane.
+
 ### Sound (`js/audio.js`)
 
-Ambient music is generated live with Web Audio: slow pads, a breathing drone, glassy bells and a hiss of water. Each era has its own key and scale; light brightens the sound and brings more bells, night darkens it, and a low dissonant pulse rises when something can eat you, the rotifer is near or you are infected. Sound effects are tuned to the current scale, so eating plays notes that fit the music. Volumes are in the pause menu; M mutes.
+Ambient music is generated live with Web Audio: slow pads, a breathing drone, glassy bells and a hiss of water. Each era has its own key and scale; light brightens the sound and brings more bells, night darkens it, and a low dissonant pulse rises when something can eat you, the rotifer is near or you are infected. Sound effects are tuned to the current scale, so eating plays notes that fit the music. Volumes and a **Test sound** button are in the pause menu; M mutes. The music sits in the mid range so phone speakers can play it, and it plays even when an iPhone is set to silent.
 
 ### Other files
 

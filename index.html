@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Primordia</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <!-- pwa: installable app (removed from the dist builds by tools/build.mjs) -->
@@ -32,6 +32,7 @@
       <div class="vitals-head">
         <span id="hud-species" class="species-name">—</span>
         <span class="chip" id="hud-gen">Gen 1</span>
+        <button class="more-btn" id="hud-more-btn" type="button" aria-expanded="true" aria-controls="hud-more" title="Show or hide details">▾</button>
       </div>
       <div class="bar-row"><span class="bar-label">Health</span><div class="bar hp"><i id="bar-hp"></i></div></div>
       <div class="bar-row"><span class="bar-label">Energy</span><div class="bar en"><i id="bar-en"></i></div></div>
@@ -39,11 +40,14 @@
       <div class="vitals-foot">
         <span class="dna" title="DNA points, spent in the editor"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 1c0 4 8 4 8 7s-8 3-8 7M12 1c0 4-8 4-8 7s8 3 8 7M5 4h6M5 12h6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><b id="hud-dna">0</b> DNA</span>
         <span class="lineage" title="Living members of your lineage"><b id="hud-lineage">1</b> alive</span>
+      </div>
+      <div class="status-row" id="hud-status" aria-live="polite"></div>
+      <div class="vitals-more" id="hud-more">
         <span class="phase-chip" id="hud-phase">Simple cell</span>
         <span class="sight" id="hud-sight" title="How clearly you sense. Chemoreceptors and eyes reveal more.">Sight: Blurry</span>
         <span class="diet" id="hud-diet">Grazer</span>
+        <div class="status-row" id="hud-status-more"></div>
       </div>
-      <div class="status-row" id="hud-status"></div>
     </section>
 
     <section class="panel envpanel" aria-label="Local conditions">
@@ -82,7 +86,7 @@
   <!-- ================= Title ================= -->
   <div id="screen-title" class="screen title-screen">
     <div class="title-wrap">
-      <p class="eyebrow">Cell stage · draft</p>
+      <p class="eyebrow">Cell stage</p>
       <h1 class="logo">Primordia</h1>
       <p class="lede">The sea is changing. Oxygen will rise, ice will spread, vents will open. Shape your lineage of cells to survive, one division at a time.</p>
       <section class="continue-card" id="continue-card" hidden aria-label="Saved game">
@@ -95,6 +99,11 @@
       </section>
       <p class="new-label" id="new-label" hidden>Or start a new lineage. This replaces your saved one.</p>
       <div class="start-grid" id="start-grid"></div>
+      <div class="diff-row" role="radiogroup" aria-label="Difficulty">
+        <span class="diff-label">Difficulty</span>
+        <button class="seg" type="button" role="radio" data-diff="easy" aria-checked="true">Easy<small>Hunters can't outrun your sprint · attacks hurt half as much · faster growth</small></button>
+        <button class="seg" type="button" role="radio" data-diff="normal" aria-checked="false">Normal<small>A harsher, more realistic pond</small></button>
+      </div>
       <div class="name-row">
         <label for="species-input">Species name</label>
         <input id="species-input" type="text" maxlength="32" autocomplete="off">
@@ -267,7 +276,8 @@
         </select></label>
         <label>Music <input id="vol-music" type="range" min="0" max="1" step="0.05"></label>
         <label>Effects <input id="vol-sfx" type="range" min="0" max="1" step="0.05"></label>
-        <p class="muted small">M mutes. On iPhone, sound follows the silent switch.</p>
+        <div class="sound-test"><button class="btn" id="btn-sound-test" type="button">Test sound</button><span class="muted small" id="sound-status"></span></div>
+        <p class="muted small">M or the ♪ button mutes. Sound plays even when an iPhone is set to silent.</p>
       </div>
       <div class="stack">
         <button class="btn ghost" id="btn-quit">Back to title</button>

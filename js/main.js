@@ -21,6 +21,7 @@ const state = {
   world: null,
   renderer: null,
   start: 'shallows',
+  difficulty: 'easy',
   speed: 1,
   keys: new Set(),
   pointer: { x: 0, y: 0, down: false, inside: false },
@@ -40,7 +41,7 @@ let savedGame = null;
 // ---------------------------------------------------------------- worlds
 
 function makeAttractWorld() {
-  const w = new World((Math.random() * 1e9) | 0);
+  const w = new World((Math.random() * 1e9) | 0, { difficulty: state.difficulty });
   w.populate();
   for (let i = 0; i < 300; i++) w.step(SIM_DT);
   return w;
@@ -147,7 +148,7 @@ function startGame() {
   hud.update(0, w, state.renderer, true);
   const start = PLAYER_STARTS[state.start];
   hud.toast(`<b>${name}</b>, a single bacterium, begins in the ${start.label.toLowerCase()}. Touch food to absorb it, grow, and divide.`, 'good', 7);
-  setTimeout(() => hud.toast('You twitch along on pili: slow, but every cell around you is just as small. Watch the gauges on the left.', '', 7), 3000);
+  setTimeout(() => hud.toast('You twitch along on pili: slow, but every cell around you is just as small. If the water hurts you, a red tag under your health bars says why.', '', 7), 3000);
 }
 
 // ---------------------------------------------------------------- screens
@@ -164,7 +165,10 @@ function setMode(mode) {
   if (mode !== 'editor') editor.open_ && editor.close();
   hud.show(mode !== 'title' && mode !== 'editor');
   if (mode === 'eco') renderEco(state.world);
-  if (mode === 'pause') updateSaveStatus();
+  if (mode === 'pause') {
+    updateSaveStatus();
+    syncAudioUI();
+  }
   if (mode === 'title') refreshContinue();
 }
 
@@ -552,6 +556,24 @@ canvas.addEventListener(
   { passive: false }
 );
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+// The page itself never zooms: block iOS pinch gestures on the page and
+// double-tap zoom (the editor's own pinch-zoom uses pointer events and still works).
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
+let lastTouchEnd = 0;
+document.addEventListener(
+  'touchend',
+  (e) => {
+    const now = Date.now();
+    const t = e.target;
+    // Buttons and fields keep every tap (rapid + presses in the editor);
+    // touch-action: manipulation already stops zoom on them.
+    const control = t instanceof Element && t.closest('button, input, select, textarea, label');
+    if (now - lastTouchEnd < 350 && !control) e.preventDefault();
+    lastTouchEnd = now;
+  },
+  { passive: false }
+);
 // Belt and braces against selection and the iOS long-press callout while steering.
 canvas.addEventListener('selectstart', (e) => e.preventDefault());
 canvas.addEventListener('dragstart', (e) => e.preventDefault());
@@ -596,6 +618,28 @@ function applyControls() {
 // ---------------------------------------------------------------- buttons
 
 $('btn-start').addEventListener('click', startGame);
+// Difficulty: remembered on this device for the next new lineage.
+try {
+  const d = localStorage.getItem('primordia.difficulty');
+  if (d === 'easy' || d === 'normal') state.difficulty = d;
+} catch {
+  /* default */
+}
+function syncDifficulty() {
+  for (const b of document.querySelectorAll('.diff-row .seg')) b.setAttribute('aria-checked', String(b.dataset.diff === state.difficulty));
+}
+for (const b of document.querySelectorAll('.diff-row .seg')) {
+  b.addEventListener('click', () => {
+    state.difficulty = b.dataset.diff;
+    syncDifficulty();
+    try {
+      localStorage.setItem('primordia.difficulty', state.difficulty);
+    } catch {
+      /* not critical */
+    }
+  });
+}
+syncDifficulty();
 $('btn-continue-save').addEventListener('click', continueGame);
 $('btn-save-now').addEventListener('click', () => {
   saveGame();
@@ -772,7 +816,13 @@ function syncAudioUI() {
   }
   $('btn-sound').title = on ? 'Sound on (M)' : 'Sound off (M)';
   $('btn-sound-title').textContent = on ? 'Sound: on' : 'Sound: off';
+  $('sound-status').textContent = audio.status();
 }
+$('btn-sound-test').addEventListener('click', () => {
+  if (audio.settings.muted) audio.setMuted(false);
+  audio.test();
+  setTimeout(syncAudioUI, 300);
+});
 $('vol-music').addEventListener('input', (e) => audio.setMusicVolume(Number(e.target.value)));
 $('vol-sfx').addEventListener('input', (e) => {
   audio.setSfxVolume(Number(e.target.value));

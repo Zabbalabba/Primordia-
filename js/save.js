@@ -51,6 +51,7 @@ export function serialize(world, meta = {}) {
       giant: world.giantTimer,
     },
     eukaryotesExist: world.eukaryotesExist,
+    difficulty: world.difficulty,
     symbiontSpecies: world.symbiontSpecies ? world.symbiontSpecies.id : null,
     viruses: world.viruses.map((v) => [r1(v.x), r1(v.y), v.strain, r1(v.age), r1(v.life), r1(v.phase)]),
     giants: world.giants.map((g) => ({ x: g.x, y: g.y, heading: g.heading, r: g.r, t: g.t, life: g.life, phase: g.phase, feeding: g.feeding, target: g.target })),
@@ -114,6 +115,8 @@ export function serialize(world, meta = {}) {
       attackKind: world.pressures.attackKind,
       biomeTime: world.pressures.biomeTime,
       recentHit: world.pressures.recentHit || 0,
+      secs: world.pressures.secs || {},
+      hits: world.pressures.hits || 0,
     },
     meta,
   };
@@ -143,6 +146,7 @@ export function deserialize(d) {
   world.virusTimer = d.timers.virus ?? world.virusTimer;
   world.giantTimer = d.timers.giant ?? world.giantTimer;
   world.eukaryotesExist = !!d.eukaryotesExist;
+  world.difficulty = d.difficulty || 'easy';
   world.viruses = (d.viruses || []).map(([x, y, strain, age, life, phase]) => ({ x, y, strain, age, life, phase }));
   world.giants = (d.giants || []).map((g) => ({ ...g }));
   world.lineageCauses = d.lineageCauses;

@@ -103,6 +103,8 @@ export class Editor {
     $('ed-name').value = world.playerSpecies.name;
     this.open_ = true;
     $('screen-editor').hidden = false;
+    // Every division starts at the top, not where the last one was scrolled to.
+    for (const el of [$('screen-editor'), ...document.querySelectorAll('#screen-editor .ed-palette, #screen-editor .ed-stats, #screen-editor .ed-stage')]) el.scrollTop = 0;
     this.resize();
     this.setZoom(1);
     const loop = (t) => {
@@ -259,6 +261,9 @@ export class Editor {
         delete p.mutFrom;
       }
     }
+    // Copies bought of a part that only the old mutation allowed go too.
+    this.draft.parts = this.draft.parts.filter((p) => p.o !== 'new' || !this.isLocked(p.t));
+    if (this.placing && this.isLocked(this.placing)) this.placing = null;
     if (prev && prev.kind === 'size') {
       if (Math.abs(this.draft.size - this.baseSize) < 0.001) this.draft.size = this.startSize;
       this.baseSize = this.startSize;
@@ -357,6 +362,27 @@ export class Editor {
     return !this.world.progress.unlocked.has(id) && !this.draft.parts.some((p) => p.t === id && (p.o === 'mut' || p.o === 'sym' || p.mutFrom));
   }
 
+  /**
+   * A part you only have through this division's new mutation (or a new
+   * partner): you get that one copy now, and can buy more once it is part
+   * of your genome, from the next division on.
+   */
+  isTrial(id) {
+    if (this.isLocked(id)) return false;
+    if (this.world.progress.unlocked.has(id)) return false;
+    if (this.symbiosisOn && this.guest === 'mito' && EUKARYOTE_UNLOCKS.includes(id)) return false;
+    return true;
+  }
+
+  /** Can another copy of this part be bought with DNA right now? */
+  canBuy(id) {
+    return !this.isLocked(id) && !this.isTrial(id) && canAddPart(this.draft, id);
+  }
+
+  trialHint(id) {
+    this.hint(`${PARTS[id].name} is a new mutation: you get one copy this time. Once it is part of your genome you can buy more at the next division.`);
+  }
+
   /** How many of this part the cell had before this division (the minus floor). */
   floorOf(id) {
     return this.draft.parts.filter((p) => p.t === id && isHad(p)).length;
@@ -374,8 +400,11 @@ export class Editor {
       const from = PARTS[id].evolvesFrom;
       const complexOnly = !partAllowed(id, this.draft.domain);
       el.tile.classList.toggle('complex-only', complexOnly);
+      const trial = this.isTrial(id);
       el.sub.textContent = !locked
-        ? PARTS[id].effect
+        ? trial
+          ? 'New mutation: one copy this time'
+          : PARTS[id].effect
         : complexOnly
           ? PARTS[id].domain === 'pro'
             ? 'Simple cells only'
@@ -389,7 +418,8 @@ export class Editor {
       el.count.title = `${c[id]} of ${PARTS[id].max}`;
       el.minus.disabled = c[id] <= this.floorOf(id);
       el.minus.title = el.minus.disabled && c[id] > 0 ? 'You can’t go below what your cell already has.' : '';
-      el.plus.disabled = locked || !canAddPart(this.draft, id);
+      el.plus.disabled = !this.canBuy(id);
+      el.plus.title = trial ? 'New mutation: one copy this time' : '';
     }
   }
 
@@ -397,6 +427,7 @@ export class Editor {
   stepPart(id, dir) {
     if (dir > 0) {
       if (this.isLocked(id)) return this.pickPart(id);
+      if (this.isTrial(id)) return this.trialHint(id);
       if (!canAddPart(this.draft, id)) {
         this.hint(`You can't fit another ${PARTS[id].name.toLowerCase()}.`);
         return;
@@ -443,6 +474,10 @@ export class Editor {
           ? `${PARTS[id].name} evolves from an ${PARTS[from].name.toLowerCase()}. Live one generation with an ${PARTS[from].name.toLowerCase()} and you can upgrade it, or wait for the mutation.`
           : `${PARTS[id].name} is locked. Mutations and absorbing genes from cells that have it can unlock it.`
       );
+      return;
+    }
+    if (this.isTrial(id)) {
+      this.trialHint(id);
       return;
     }
     if (!canAddPart(this.draft, id)) {
@@ -574,12 +609,12 @@ export class Editor {
     this.pointer = pt;
     if (this.placing) {
       if (pt.d < this.R * 0.3) return;
-      if (canAddPart(this.draft, this.placing)) {
+      if (this.canBuy(this.placing)) {
         const part = { t: this.placing, a: pt.a, o: 'new' };
         this.draft.parts.push(part);
         this.selected = part;
       }
-      if (!canAddPart(this.draft, this.placing)) this.placing = null;
+      if (!this.canBuy(this.placing)) this.placing = null;
       this.hint(this.placing ? 'Tap again to add another, or pick a different part.' : null);
       this.refresh();
       return;
@@ -842,7 +877,7 @@ export class Editor {
       b.addEventListener('click', fn);
       actions.appendChild(b);
     };
-    const canMirror = P.ext && !this.isLocked(sel.t) && canAddPart(this.draft, sel.t) && Math.abs(Math.abs(sel.a) - Math.PI) > 0.15 && Math.abs(sel.a) > 0.15;
+    const canMirror = P.ext && this.canBuy(sel.t) && Math.abs(Math.abs(sel.a) - Math.PI) > 0.15 && Math.abs(sel.a) > 0.15;
     if (canMirror) {
       addBtn(`Mirror (${P.dna})`, '', () => {
         const part = { t: sel.t, a: normAngle(-sel.a), o: 'new' };

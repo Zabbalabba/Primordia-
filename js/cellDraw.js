@@ -66,7 +66,7 @@ function glowStroke(ctx, path, hue, width, bright = 70) {
   ctx.stroke(path);
 }
 
-function wavePath(bx, by, a, L, amp, freq, waves, t, phase, seg = 18) {
+function wavePath(bx, by, a, L, amp, freq, waves, t, phase, seg = 18, grow = false) {
   const p = new Path2D();
   const dx = Math.cos(a);
   const dy = Math.sin(a);
@@ -74,7 +74,7 @@ function wavePath(bx, by, a, L, amp, freq, waves, t, phase, seg = 18) {
   const py = dx;
   for (let i = 0; i <= seg; i++) {
     const s = i / seg;
-    const w = Math.sin(s * waves - t * freq + phase) * amp * Math.min(1, s * 2.5);
+    const w = Math.sin(s * waves - t * freq + phase) * amp * (grow ? Math.pow(s, 0.75) : Math.min(1, s * 2.5));
     const x = bx + dx * L * s + px * w;
     const y = by + dy * L * s + py * w;
     if (i === 0) p.moveTo(x, y);
@@ -83,47 +83,117 @@ function wavePath(bx, by, a, L, amp, freq, waves, t, phase, seg = 18) {
   return p;
 }
 
-function ciliaPath(a, r, mp, t, thrust, phase, span = PARTS.cilia.arc, n = 8, len = 0.36) {
-  const beat = 0.35 + 0.65 * Math.min(1, thrust + 0.15);
+function ciliaPath(a, r, mp, t, thrust, phase, span = PARTS.cilia.arc, n = 9, len = 0.38) {
+  // Cilia beat in a travelling (metachronal) wave: a stiff power stroke sweeps
+  // backward and pushes water, then the cilium curls and swings forward close
+  // to the surface. Neighbours are slightly out of step.
+  const freq = 1.6 + 6 * Math.min(1, thrust + 0.1);
   const p = new Path2D();
+  const L = r * len;
   for (let i = 0; i < n; i++) {
     const th = a - span / 2 + (span * (i + 0.5)) / n;
-    const bend = Math.sin(t * 11 + i * 0.9 + phase) * 0.6 * beat;
+    const side = Math.sin(th) >= 0 ? 1 : -1;
     const b = mp(th);
-    const L = r * len;
+    const ps = (((t * freq - i * 0.11 + phase * 0.1) % 1) + 1) % 1;
+    let lean;
+    let bend;
+    if (ps < 0.3) {
+      const k = ps / 0.3;
+      lean = 0.95 - 1.9 * (k * k * (3 - 2 * k)); // forward → backward, straight
+      bend = 0.08;
+    } else {
+      const k = (ps - 0.3) / 0.7;
+      lean = -0.95 + 1.9 * k; // backward → forward, curled
+      bend = 1.1 * Math.sin(k * Math.PI);
+    }
+    // Positive lean tilts the cilium toward the front of the cell.
+    const dir = th - side * lean;
+    const mid = dir + side * bend * 0.5;
+    const tip = dir + side * bend;
     p.moveTo(b.x, b.y);
-    p.quadraticCurveTo(b.x + Math.cos(th) * L * 0.6, b.y + Math.sin(th) * L * 0.6, b.x + Math.cos(th + bend) * L, b.y + Math.sin(th + bend) * L);
+    p.quadraticCurveTo(b.x + Math.cos(mid) * L * 0.55, b.y + Math.sin(mid) * L * 0.55, b.x + Math.cos(tip) * L * (1 - 0.25 * bend), b.y + Math.sin(tip) * L * (1 - 0.25 * bend));
   }
   return p;
 }
 
-function drawPili(ctx, a, r, mp, hue, t, phase) {
-  // Pili reach out and retract in a slow rhythm.
+function drawPili(ctx, a, r, mp, hue, t, phase, twitch, thrust) {
+  // Twitching motility: each pilus reaches out, sticks to the surface and
+  // retracts, hauling the cell forward. Retraction is timed to the pull in
+  // the simulation (world.move), so the cell jerks as the pili shorten.
   const span = PARTS.pili.arc;
-  const ext = 0.55 + 0.45 * Math.sin(t * 3.4 + phase);
+  const moving = thrust > 0.05;
+  const cyc = twitch ?? t * 1.7;
   const p = new Path2D();
+  const dots = [];
   for (let i = 0; i < 6; i++) {
     const th = a - span / 2 + (span * (i + 0.5)) / 6;
     const b = mp(th);
-    const L = r * (0.45 + 0.35 * ((i * 7) % 3) / 2) * ext;
+    const maxL = r * (0.75 + 0.5 * (((i * 7) % 3) / 2));
+    let L;
+    let curl;
+    let stuck = false;
+    if (moving) {
+      const f = (((cyc + i * 0.05 + phase * 0.01) % 1) + 1) % 1;
+      if (f < 0.5) {
+        // Pull: taut and shortening, tip anchored.
+        L = maxL * (1 - 0.7 * (f / 0.5));
+        curl = 0;
+        stuck = true;
+      } else {
+        // Reach out again, feeling around.
+        const k = (f - 0.5) / 0.5;
+        L = maxL * (0.3 + 0.7 * k);
+        curl = 0.35 * Math.sin(k * Math.PI + i);
+      }
+    } else {
+      L = maxL * (0.45 + 0.15 * Math.sin(t * 1.3 + i * 1.7 + phase));
+      curl = 0.3 * Math.sin(t * 1.9 + i * 2.3 + phase);
+    }
+    const ex = b.x + Math.cos(th + curl) * L;
+    const ey = b.y + Math.sin(th + curl) * L;
     p.moveTo(b.x, b.y);
-    p.lineTo(b.x + Math.cos(th) * L, b.y + Math.sin(th) * L);
+    p.quadraticCurveTo(b.x + Math.cos(th) * L * 0.55, b.y + Math.sin(th) * L * 0.55, ex, ey);
+    if (stuck) dots.push(ex, ey);
   }
   ctx.strokeStyle = glowColor(hue, 82, 0.8);
   ctx.lineWidth = Math.max(0.4, r * 0.03);
   ctx.stroke(p);
+  if (dots.length) {
+    ctx.fillStyle = glowColor(hue, 88, 0.9);
+    const d = Math.max(0.5, r * 0.05);
+    for (let i = 0; i < dots.length; i += 2) {
+      ctx.beginPath();
+      ctx.arc(dots[i], dots[i + 1], d, 0, TAU);
+      ctx.fill();
+    }
+  }
 }
 
-function drawRotor(ctx, a, r, mp, hue, t, thrust, phase) {
-  // A long thin corkscrew, spun fast while running.
+function drawRotor(ctx, a, r, mp, hue, t, thrust, phase, tumble) {
+  // A long, thin corkscrew. Running: the motor spins it and a helical wave
+  // runs down its length (two strands hint at the 3-D helix). Tumbling: the
+  // motor reverses and the filament goes slack and curly.
   const b = mp(a);
-  const path = wavePath(b.x, b.y, a, r * 3.1, r * 0.16, 10 + 30 * thrust, 15, t, phase, 26);
+  if (tumble > 0) {
+    const path = wavePath(b.x, b.y, a + Math.sin(t * 9 + phase) * 0.5, r * 2.5, r * 0.42, 6, 5, t, phase, 22);
+    glowStroke(ctx, path, hue, Math.max(0.5, r * 0.035), 80);
+    return;
+  }
+  const freq = 8 + 34 * thrust;
+  const path = wavePath(b.x, b.y, a, r * 3.1, r * 0.16, freq, 15, t, phase, 28);
   glowStroke(ctx, path, hue, Math.max(0.5, r * 0.035), 80);
+  const back = wavePath(b.x, b.y, a, r * 3.1, r * 0.16, freq, 15, t, phase + Math.PI * 0.6, 28);
+  ctx.strokeStyle = glowColor(hue, 70, 0.25);
+  ctx.lineWidth = Math.max(0.4, r * 0.025);
+  ctx.stroke(back);
 }
 
 function drawFlagellum(ctx, a, r, mp, hue, t, thrust, phase) {
+  // A whip that beats in a plane: the bend starts at the base and grows as it
+  // travels to the tip, faster when swimming hard.
   const b = mp(a);
-  const path = wavePath(b.x, b.y, a, r * 2.3, r * 0.3 * (0.35 + 0.65 * Math.min(1, thrust + 0.2)), 5 + 13 * thrust, 8.5, t, phase);
+  const amp = r * 0.34 * (0.35 + 0.65 * Math.min(1, thrust + 0.2));
+  const path = wavePath(b.x, b.y, a, r * 2.4, amp, 4 + 14 * thrust, 7.5, t, phase, 22, true);
   glowStroke(ctx, path, hue, Math.max(0.8, r * 0.07));
 }
 
@@ -443,11 +513,20 @@ export function drawCell(ctx, g, r, st, t, opts = {}) {
   const hue = g.hue;
   const thrust = st.cyst ? 0 : st.thrustLevel || 0;
   const phase = st.phase || 0;
-  const { ex, ey } = bodyShape(g);
+  let { ex, ey } = bodyShape(g);
+  const hasPart = (id) => (opts.counts && opts.counts[id] !== undefined ? opts.counts[id] > 0 : g.parts.some((p) => p.t === id));
+  // Each pilus pull stretches the body a little toward where it is going.
+  if (thrust > 0.05 && st.twitch !== undefined && hasPart('pili')) {
+    const pull = Math.pow(Math.max(0, Math.sin(st.twitch * TAU)), 3) * Math.min(1, thrust);
+    ex *= 1 + 0.06 * pull;
+    ey *= 1 - 0.05 * pull;
+  }
   const mp = (a) => ({ x: Math.cos(a) * r * ex, y: Math.sin(a) * r * ey });
   ctx.save();
   ctx.translate(st.x, st.y);
-  ctx.rotate(st.heading);
+  // A beating whip makes the whole cell yaw slightly from side to side.
+  const yaw = thrust > 0.05 && !st.cyst && hasPart('flagellum') ? Math.sin(t * (4 + 14 * thrust) + phase) * 0.05 * Math.min(1, thrust) : 0;
+  ctx.rotate(st.heading + yaw);
   ctx.globalCompositeOperation = 'lighter';
 
   if (opts.blob || opts.simple) {
@@ -482,12 +561,12 @@ export function drawCell(ctx, g, r, st, t, opts = {}) {
   if (!st.cyst) {
     for (const p of g.parts) {
       if (p.t === 'flagellum') drawFlagellum(ctx, p.a, r, mp, hue, t, thrust, phase + p.a);
-      else if (p.t === 'rotor') drawRotor(ctx, p.a, r, mp, hue, t, thrust, phase + p.a);
+      else if (p.t === 'rotor') drawRotor(ctx, p.a, r, mp, hue, t, thrust, phase + p.a, st.tumble || 0);
       else if (p.t === 'cilia') {
         ctx.strokeStyle = glowColor(hue, 75, 0.75);
         ctx.lineWidth = Math.max(0.5, r * 0.04);
         ctx.stroke(ciliaPath(p.a, r, mp, t, thrust, phase + p.a));
-      } else if (p.t === 'pili') drawPili(ctx, p.a, r, mp, hue, t, phase + p.a);
+      } else if (p.t === 'pili') drawPili(ctx, p.a, r, mp, hue, t, phase + p.a, st.twitch, thrust);
     }
   }
   for (const p of g.parts) if (p.t === 'armor') drawArmor(ctx, p.a, r, hue);
@@ -497,7 +576,23 @@ export function drawCell(ctx, g, r, st, t, opts = {}) {
   for (const p of g.parts) if (p.t === 'lytic') drawLytic(ctx, p.a, r, mp, t, phase);
 
   // Body: a dark translucent interior with a glowing rim.
-  const lobes = st.cyst ? [] : g.parts.filter((p) => p.t === 'pseudopod').map((p, i) => ({ a: p.a, amp: 0.22 * (0.55 + 0.45 * Math.sin(t * 1.2 + i * 2 + phase)) }));
+  // Pseudopods: at rest they bulge where they sit; when crawling, new lobes
+  // flow out at the leading edge, alternating left and right, and the rear
+  // pinches in as the cell pulls itself after them.
+  let lobes = [];
+  if (!st.cyst) {
+    const pods = g.parts.filter((p) => p.t === 'pseudopod');
+    if (pods.length && thrust > 0.1) {
+      const k = Math.min(1, thrust);
+      const cyc = t * 0.9 + phase;
+      lobes.push({ a: 0.4, amp: 0.3 * k * Math.max(0, Math.sin(cyc)) });
+      lobes.push({ a: -0.4, amp: 0.3 * k * Math.max(0, Math.sin(cyc + Math.PI)) });
+      lobes.push({ a: Math.PI, amp: -0.08 * k });
+      for (const [i, p] of pods.entries()) lobes.push({ a: p.a, amp: 0.1 * (0.5 + 0.5 * Math.sin(t * 1.2 + i * 2 + phase)) });
+    } else {
+      lobes = pods.map((p, i) => ({ a: p.a, amp: 0.22 * (0.55 + 0.45 * Math.sin(t * 1.2 + i * 2 + phase)) }));
+    }
+  }
   const body = membranePath(r, t, phase, st.cyst ? 0.2 : opts.wobble ?? 1, ex, ey, lobes);
   ctx.globalCompositeOperation = 'source-over';
   const fill = ctx.createRadialGradient(0, 0, 0, 0, 0, r * Math.max(ex, 1));
@@ -532,8 +627,10 @@ export function drawCell(ctx, g, r, st, t, opts = {}) {
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
     ctx.lineWidth = Math.max(0.4, r * 0.035);
     ctx.beginPath();
+    // A spinning flagellar motor turns the body the other way.
+    const spin = !st.cyst && hasPart('rotor') && !(st.tumble > 0) ? -t * 2.2 * thrust : 0;
     for (let i = 0; i <= 14; i++) {
-      const a = i * 1.9 + phase;
+      const a = i * 1.9 + phase + spin;
       const rr = r * 0.32 * (0.4 + 0.6 * Math.abs(Math.sin(i * 1.3)));
       const x = Math.cos(a) * rr * ex * 0.8;
       const y = Math.sin(a) * rr * ey * 0.8;
