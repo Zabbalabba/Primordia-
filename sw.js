@@ -6,7 +6,7 @@
 // Cache names start with "primordia-" because a GitHub Pages address is
 // shared by all of an account's projects: other apps' caches are left alone.
 
-const VERSION = "98c45092903d";
+const VERSION = "48a9d2d576e6";
 const CACHE = `primordia-${VERSION}`;
 const FONT_CACHE = 'primordia-fonts';
 const SHELL = [

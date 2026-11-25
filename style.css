@@ -440,6 +440,13 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
 
 .ed-foot { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; border-top: 1px solid var(--hair); padding-top: 10px; }
 .warn { color: var(--warn); font-size: 13px; flex: 1; text-align: right; min-width: 0; }
+/* What this division changes, next to the Divide button. */
+.ed-changes { flex: 2 1 260px; min-width: 0; font-size: 12px; line-height: 1.45; color: var(--ink-dim); display: flex; flex-direction: column; gap: 1px; }
+.ed-changes[hidden] { display: none; }
+.ed-changes b { font-weight: 600; margin-right: 4px; }
+.ed-changes .ch-gain b { color: var(--accent); }
+.ed-changes .ch-lose { color: var(--warn); }
+.ed-changes .ch-lose b { color: var(--warn); }
 
 @media (max-width: 1000px) {
   .editor { display: block; overflow: auto; }
@@ -449,8 +456,19 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
   .offer-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ed-palette { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 2px 8px; }
   .ed-palette .cat-title { grid-column: 1 / -1; }
-  .ed-foot { position: sticky; bottom: 0; z-index: 5; background: rgba(2, 6, 17, 0.96); padding: 10px 0 calc(10px + env(safe-area-inset-bottom, 0px)); gap: 10px; }
-  .ed-foot .warn { flex-basis: 100%; order: 3; text-align: left; }
+  /* Pinned footer: Reset and DNA on top, then what changes beside Divide. */
+  .ed-foot {
+    position: sticky; bottom: 0; z-index: 5; background: #02060f; box-shadow: 0 24px 0 0 #02060f;
+    padding: 10px 0 calc(10px + env(safe-area-inset-bottom, 0px)); gap: 8px 12px;
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
+    grid-template-areas: 'reset wallet wallet' 'changes changes done' 'warn warn warn';
+  }
+  #ed-reset { grid-area: reset; }
+  .ed-foot .ed-wallet { grid-area: wallet; justify-content: flex-end; }
+  .ed-foot .ed-changes { grid-area: changes; }
+  .ed-foot #ed-done { grid-area: done; align-self: end; }
+  .ed-foot .warn { grid-area: warn; text-align: left; }
+  .ed-foot .warn:empty { display: none; }
 }
 @media (max-width: 520px) { .offer-list { grid-template-columns: 1fr; } .ed-sliders { grid-template-columns: 1fr; } }
 

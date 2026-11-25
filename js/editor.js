@@ -1101,9 +1101,48 @@ export class Editor {
     if (!moves) warn.push(this.draft.domain === 'euk' ? 'Your cell needs a way to move to divide: add cilia, pseudopods or a flagellum.' : 'Your cell needs a way to move to divide: add pili or a rotary flagellum.');
     if (ph.absorb < 0.05 && ph.particleEff === 0 && ph.meatEff === 0 && ph.photo === 0 && ph.chemo === 0) warn.push('This cell has no way to get energy.');
     $('ed-warn').textContent = warn.join(' ');
+    this.renderChanges();
     $('ed-done').disabled = cost > dna || !moves;
     if (this.tiles) {
       for (const [id, el] of Object.entries(this.tiles)) el.tile.classList.toggle('pricey', !el.tile.classList.contains('locked') && PARTS[id].dna > left);
+    }
+  }
+
+  /** Gained / lost / evolved parts compared with the parent, beside Divide. */
+  renderChanges() {
+    const before = countParts(this.orig);
+    const after = countParts(this.draft);
+    const evolved = [];
+    // An eye evolving in place is an upgrade, not a loss plus a gain.
+    for (const p of this.draft.parts) {
+      const from = p.o === 'up' ? p.upFrom : p.mutFrom;
+      if (!from) continue;
+      evolved.push(`${PARTS[from].name} → ${PARTS[p.t].name}`);
+      after[from]++;
+      after[p.t]--;
+    }
+    const gained = [];
+    const lost = [];
+    const label = (id, n) => `${PARTS[id].name}${n > 1 ? ` ×${n}` : ''}`;
+    for (const id of PART_IDS) {
+      const d = after[id] - before[id];
+      if (d > 0) gained.push(label(id, d));
+      else if (d < 0) lost.push(label(id, -d));
+    }
+    const body = [];
+    if (this.draft.domain === 'euk' && this.orig.domain !== 'euk') body.push('becomes a complex cell');
+    if (Math.abs(this.draft.size - this.orig.size) > 0.01) body.push(`size ${this.orig.size.toFixed(2)} → ${this.draft.size.toFixed(2)}`);
+    if (Math.abs(this.draft.membrane - this.orig.membrane) > 0.01) body.push(`membrane ${Math.round(this.orig.membrane * 100)}% → ${Math.round(this.draft.membrane * 100)}%`);
+    const rows = [];
+    if (gained.length) rows.push(`<span class="ch-gain"><b>Gained</b>${gained.join(', ')}</span>`);
+    if (evolved.length) rows.push(`<span class="ch-gain"><b>Evolved</b>${evolved.join(', ')}</span>`);
+    if (lost.length) rows.push(`<span class="ch-lose"><b>Lost</b>${lost.join(', ')}</span>`);
+    if (body.length) rows.push(`<span><b>Body</b>${body.join(', ')}</span>`);
+    const html = rows.join('');
+    if (this.changesHtml !== html) {
+      this.changesHtml = html;
+      $('ed-changes').innerHTML = html;
+      $('ed-changes').hidden = !html;
     }
   }
 
@@ -1205,7 +1244,8 @@ function lyRot(x, y) {
 /** "a flagellum", "an eyespot", "cilia" (already plural). */
 function withArticle(name) {
   const n = name.toLowerCase();
-  if (n === 'cilia') return n;
+  // Plural names (cilia, pili, pseudopods, lysosomes...) take no article.
+  if (n === 'cilia' || n === 'pili' || /s$/.test(n)) return n;
   return `${/^[aeiou]/.test(n) ? 'an' : 'a'} ${n}`;
 }
 
