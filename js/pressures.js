@@ -223,8 +223,8 @@ export class Pressures {
       if (!c.cytostome && preyNear >= 0.05) part('cytostome', f('preyNear') * 1.2, `Cells your size were within reach ${pc(preyNear)} of this generation. A cytostome bites into them.`, 0);
       part('cilia', 0.5, SPONT);
       // The way to the next stage: cells that stick together.
-      if (!c.adhesion && progress && progress.eukaryote && progress.generation - progress.eukaryoteGen >= 2) {
-        pool.push({ kind: 'part', part: 'adhesion', w: 1.6, reason: 'Your daughter cells keep bumping into each other. Sticky proteins could keep them together.' });
+      if (!c.adhesion && canAddPart(genome, 'adhesion') && progress && progress.eukaryote && progress.generation - progress.eukaryoteGen >= 2) {
+        pool.push({ kind: 'part', part: 'adhesion', w: 1.6, reason: 'Your daughter cells keep bumping into each other. Sticky proteins could keep them together: from this division on, daughters stay attached.' });
       }
     } else {
       part('pili', 0.4, SPONT, 0);

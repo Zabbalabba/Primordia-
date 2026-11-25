@@ -276,14 +276,40 @@ export class Editor {
     const o = this.offers[i];
     if (o) {
       if (o.kind === 'part') {
-        if (!canAddPart(this.draft, o.part)) {
-          // Make room by dropping a purchased copy of the same part.
-          const idx = this.draft.parts.findIndex((p) => p.t === o.part && p.o === 'new');
-          if (idx >= 0) this.draft.parts.splice(idx, 1);
-        }
+        // A chosen mutation always goes in. If the cell is full, make room by
+        // taking back parts bought this division (same part first, then the
+        // most recent one on the same side: inside or on the membrane).
+        const removed = [];
+        const ext = !!PARTS[o.part].ext;
+        const takeBack = (match) => {
+          for (let k = this.draft.parts.length - 1; k >= 0; k--) {
+            const q = this.draft.parts[k];
+            if (q.o === 'new' && match(q)) {
+              this.draft.parts.splice(k, 1);
+              removed.push(PARTS[q.t].name);
+              return true;
+            }
+          }
+          return false;
+        };
+        if (!canAddPart(this.draft, o.part)) takeBack((q) => q.t === o.part);
+        while (!canAddPart(this.draft, o.part) && takeBack((q) => !!PARTS[q.t].ext === ext && !PARTS[q.t].eye === !PARTS[o.part].eye));
+        while (!canAddPart(this.draft, o.part) && takeBack((q) => !!PARTS[q.t].ext === ext));
         if (canAddPart(this.draft, o.part)) {
-          const a = PARTS[o.part].ext ? normAngle(o.angle ?? placeAngleFor(o.part, this.draft)) : 0;
+          const a = ext ? normAngle(o.angle ?? placeAngleFor(o.part, this.draft)) : 0;
           this.draft.parts.push({ t: o.part, a, o: 'mut' });
+          this.hint(
+            `${PARTS[o.part].name} added for free.` +
+              (removed.length ? ` To make room, ${removed.length === 1 ? 'one part you bought was' : `${removed.length} parts you bought were`} taken back and refunded (${removed.join(', ')}).` : '') +
+              (o.part === 'adhesion' ? ' The daughter from this division will stay attached.' : '')
+          );
+        } else {
+          // Only inherited parts fill the cell: say so instead of failing silently.
+          this.hint(`No room for ${PARTS[o.part].name.toLowerCase()}: your cell is full on the ${ext ? 'membrane' : 'inside'}. Remove a part first, then pick this mutation again.`);
+          this.chosen = -1;
+          this.markOffer(-1);
+          this.refresh();
+          return;
         }
       } else if (o.kind === 'upgrade') {
         // Evolve the matching eye in place (the one closest to the offer's angle).
