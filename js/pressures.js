@@ -3,7 +3,7 @@
 // when you divide (stress-induced mutation). DNA spending stays fully free.
 
 import { PARTS } from './parts.js';
-import { canAddPart, countParts, placeAngleFor, sizeLimits } from './genome.js';
+import { canAddPart, countParts, placeAngleFor, sizeLimits, hasMotor } from './genome.js';
 import { envStress, oxygenFactor } from './biology.js';
 import { BIOMES } from './environment.js';
 
@@ -245,6 +245,14 @@ export class Pressures {
 
     const offers = [];
     const used = new Set();
+    // A cell that can't move gets a free way to move, always.
+    if (!hasMotor(genome)) {
+      const t = euk ? 'cilia' : 'pili';
+      if (canAddPart(genome, t)) {
+        offers.push(decorate({ kind: 'part', part: t, w: 1, reason: 'Your cell has no way to move, and a cell that cannot move cannot divide. This mutation gives you one for free.', angle: euk ? undefined : 0 }, genome));
+        used.add(t);
+      }
+    }
     // Senses come quickly: a sensing offer is guaranteed until the lineage can
     // tell threats from prey (chemoreceptors, then eyes for complex cells).
     const sense = this.senseOffer(genome, pred, f('dark'), pc(T('dark')), hits);

@@ -6,7 +6,7 @@
 // its old type). A part with mutFrom is an inherited eye evolved by mutation.
 
 import { PARTS, CATEGORIES, PART_IDS, partAllowed, EUKARYOTE_UNLOCKS } from './parts.js';
-import { cloneGenome, phenotype, canAddPart, placeAngleFor, normAngle, countParts, sizeLimits, eukaryotize } from './genome.js';
+import { cloneGenome, phenotype, canAddPart, placeAngleFor, normAngle, countParts, sizeLimits, eukaryotize, hasMotor } from './genome.js';
 import { drawCell, drawPartIcon, organellePositions, bodyShape, MEMBRANE_PARTS } from './cellDraw.js';
 import { habitatFit } from './biology.js';
 import { BIOMES, BIOME_IDS, ERAS } from './environment.js';
@@ -140,9 +140,11 @@ export class Editor {
 
   applySymbiosis() {
     if (this.guest === 'mito') {
+      const kept = this.draft.parts.filter((p) => partAllowed(p.t, 'euk')).length;
       const g = eukaryotize(this.draft);
-      // eukaryotize() appends the new mitochondrion last.
-      g.parts.forEach((p, i) => (p.o = i === g.parts.length - 1 ? 'sym' : 'orig'));
+      // eukaryotize() keeps the allowed parts first, then appends the new
+      // mitochondrion (and cilia, if the cell had no other way to move).
+      g.parts.forEach((p, i) => (p.o = i < kept ? 'orig' : 'sym'));
       this.draft = g;
     } else if (this.guest === 'cyano') {
       this.draft.parts.push({ t: 'chloroplast', a: 0, o: 'sym' });
@@ -163,7 +165,7 @@ export class Editor {
     b.className = 'symbiosis';
     b.setAttribute('aria-pressed', String(this.symbiosisOn));
     b.innerHTML = mito
-      ? `<span class="sym-tag">Endosymbiosis</span><span class="sym-title">Keep the aerobic bacterium as a partner</span><span class="sym-text">It becomes your first mitochondrion, and your lineage becomes a <b>complex cell</b>: larger, with a nucleus, a cytoskeleton and new parts (pseudopods, cilia, food vacuoles, eyes). Bacterial pili are lost. This is how complex life began, about two billion years ago.</span>`
+      ? `<span class="sym-tag">Endosymbiosis</span><span class="sym-title">Keep the aerobic bacterium as a partner</span><span class="sym-text">It becomes your first mitochondrion, and your lineage becomes a <b>complex cell</b>: larger, with a nucleus, a cytoskeleton and new parts (pseudopods, cilia, food vacuoles, eyes). Bacterial pili are lost; a free patch of cilia keeps you moving. This is how complex life began, about two billion years ago.</span>`
       : `<span class="sym-tag">Endosymbiosis</span><span class="sym-title">Keep the cyanobacterium as a chloroplast</span><span class="sym-text">The photosynthetic bacterium you swallowed survived. Kept as a partner, it becomes a chloroplast: strong photosynthesis, as in all algae and plants.</span>`;
     const state = document.createElement('span');
     state.className = 'sym-state';
@@ -254,6 +256,7 @@ export class Editor {
   chooseOffer(i) {
     // Undo the previous choice.
     const prev = this.offers[this.chosen];
+    this.hint(null);
     this.draft.parts = this.draft.parts.filter((p) => p.o !== 'mut');
     for (const p of this.draft.parts) {
       if (p.mutFrom) {
@@ -959,9 +962,8 @@ export class Editor {
   }
 
   removePart(part) {
-    const c = countParts(this.draft);
-    if ((part.t === 'flagellum' || part.t === 'cilia') && c.flagellum + c.cilia <= 1) {
-      this.hint('Your cell needs at least one flagellum or patch of cilia to move.');
+    if (hasMotor(this.draft) && !hasMotor({ ...this.draft, parts: this.draft.parts.filter((q) => q !== part) })) {
+      this.hint(`That is your cell's last way to move, and a cell that can't move can't divide. To swap it, add another way to move first.`);
       return;
     }
     this.draft.parts.splice(this.draft.parts.indexOf(part), 1);
@@ -1095,9 +1097,11 @@ export class Editor {
     leftEl.classList.toggle('neg', left < 0);
     const warn = [];
     if (cost > dna) warn.push('Not enough DNA.');
+    const moves = hasMotor(this.draft);
+    if (!moves) warn.push(this.draft.domain === 'euk' ? 'Your cell needs a way to move to divide: add cilia, pseudopods or a flagellum.' : 'Your cell needs a way to move to divide: add pili or a rotary flagellum.');
     if (ph.absorb < 0.05 && ph.particleEff === 0 && ph.meatEff === 0 && ph.photo === 0 && ph.chemo === 0) warn.push('This cell has no way to get energy.');
     $('ed-warn').textContent = warn.join(' ');
-    $('ed-done').disabled = cost > dna;
+    $('ed-done').disabled = cost > dna || !moves;
     if (this.tiles) {
       for (const [id, el] of Object.entries(this.tiles)) el.tile.classList.toggle('pricey', !el.tile.classList.contains('locked') && PARTS[id].dna > left);
     }
@@ -1166,7 +1170,7 @@ export class Editor {
   finish() {
     const cost = this.cost();
     const world = this.world;
-    if (cost > world.progress.dna) return;
+    if (cost > world.progress.dna || !hasMotor(this.draft)) return;
     world.progress.dna -= cost;
     const o = this.offers[this.chosen];
     let newGene = null;

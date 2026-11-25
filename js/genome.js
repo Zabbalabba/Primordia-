@@ -52,6 +52,14 @@ export function canAddPart(g, t) {
   return true;
 }
 
+/** Parts that move a cell under its own power (gas vesicles only drift). */
+export const MOTOR_PARTS = ['pili', 'rotor', 'pseudopod', 'cilia', 'flagellum'];
+
+/** Can this body move by itself? A cell that can't is not allowed to divide. */
+export function hasMotor(g) {
+  return g.parts.some((p) => MOTOR_PARTS.includes(p.t) && partAllowed(p.t, g.domain || 'pro'));
+}
+
 export function sizeLimits(g) {
   return SIZE_LIMITS[g.domain === 'euk' ? 'euk' : 'pro'];
 }
@@ -321,6 +329,11 @@ export function eukaryotize(g, rng = null) {
   // Twitching pili and bacterial flagella are lost; transporters stay.
   m.parts = m.parts.filter((p) => partAllowed(p.t, 'euk'));
   m.parts.push({ t: 'mitochondrion', a: 0 });
+  if (!rng && !hasMotor(m)) {
+    // The player's new complex cell keeps moving: a patch of cilia replaces
+    // the bacterial pili and flagella it lost.
+    if (canAddPart(m, 'cilia')) m.parts.push({ t: 'cilia', a: placeAngleFor('cilia', m) });
+  }
   if (rng) {
     // AI lineages pick up a way of eating and moving that suits a complex cell.
     const kit = rng.pick([
