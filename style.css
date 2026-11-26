@@ -26,6 +26,9 @@
 
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
+/* iOS enlarges some blocks of text on its own ("text autosizing"), which
+   blew pop-ups up to several times their size. Keep the sizes we set. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 /* A game, not a page: long presses and drags must never select or call out
    the canvas or the HUD (iOS otherwise highlights the game like an image). */
 body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
@@ -214,7 +217,9 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
 }
 @media (max-width: 520px) {
   /* The action buttons wrap to two rows here; keep toasts above them. */
-  #toasts { bottom: calc(128px + env(safe-area-inset-bottom, 0px)); }
+  #toasts { bottom: calc(128px + env(safe-area-inset-bottom, 0px)); gap: 5px; }
+  .toast { font-size: 13px; padding: 7px 11px; line-height: 1.35; }
+  .toast b { font-size: 12.5px; }
 }
 @media (max-width: 480px) {
   .vitals { width: 190px; padding: 8px 10px; }
@@ -569,3 +574,24 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
 @keyframes ev-pop { from { opacity: 0; transform: scale(0.85) translateY(20px); } to { opacity: 1; transform: none; } }
 @keyframes ev-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .event-screen, .event-card, .event-card * { animation: none !important; } }
+
+/* Opening cinematic */
+.intro { position: fixed; inset: 0; z-index: 60; background: #000; transition: opacity 1s ease; }
+.intro.leaving { opacity: 0; pointer-events: none; }
+.intro canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.intro-caption {
+  position: absolute; left: 50%; bottom: calc(12% + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 8px);
+  width: min(560px, calc(100% - 48px)); margin: 0; text-align: center; color: #e9f6ff;
+  font: 400 clamp(16px, 4.4vw, 21px)/1.5 var(--font-body); letter-spacing: 0.01em; text-shadow: 0 0 18px rgba(0, 0, 0, 0.9), 0 0 4px rgba(0, 0, 0, 0.9);
+  opacity: 0; transition: opacity 0.9s ease, transform 0.9s ease;
+}
+.intro-caption.show { opacity: 1; transform: translate(-50%, 0); }
+.intro-title {
+  position: absolute; left: 50%; top: 61%; transform: translate(-50%, 10px); width: calc(100% - 40px); text-align: center;
+  opacity: 0; transition: opacity 1.4s ease, transform 1.4s ease;
+}
+.intro-title.show { opacity: 1; transform: translate(-50%, 0); }
+.intro-title h2 { margin: 0; font: italic 600 clamp(28px, 8vw, 46px) var(--font-display); color: var(--accent); text-shadow: 0 0 28px var(--accent-glow); }
+.intro-title p { margin: 8px 0 0; font-size: clamp(14px, 3.8vw, 17px); color: var(--ink-dim); letter-spacing: 0.04em; }
+.intro-skip { position: absolute; top: calc(14px + env(safe-area-inset-top, 0px)); right: max(14px, env(safe-area-inset-right, 0px)); opacity: 0.75; }
+.intro-skip:hover { opacity: 1; }

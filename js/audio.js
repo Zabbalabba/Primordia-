@@ -616,6 +616,19 @@ export class Audio {
       case 'death':
         this.tone({ type: 'triangle', f0: N(2, 1), f1: N(0, -1), dur: 2, gain: 0.14, attack: 0.05, lp: 1800 });
         break;
+      case 'meteor':
+        // A rushing streak, falling in pitch.
+        this.hiss({ filter: 'bandpass', f0: 3200, f1: 500, dur: 1.1, gain: 0.14, attack: 0.25, q: 1.6 });
+        this.tone({ type: 'triangle', f0: 900, f1: 160, dur: 1.1, gain: 0.05, attack: 0.3 });
+        break;
+      case 'thunder':
+        this.hiss({ filter: 'lowpass', f0: 1400, f1: 120, dur: 2.4, gain: 0.32, attack: 0.02, q: 0.5 });
+        this.hiss({ when: t + 0.15, filter: 'lowpass', f0: 600, f1: 90, dur: 2.8, gain: 0.25, attack: 0.3, q: 0.5 });
+        break;
+      case 'bubble':
+        for (let i = 0; i < 5; i++) this.bubble(t + i * 0.09 + Math.random() * 0.05, 0.08);
+        this.tone({ f0: N(0, 1), dur: 1.6, gain: 0.07, attack: 0.05 });
+        break;
       case 'cyst':
         this.tone({ f0: 420, f1: 180, dur: 0.6, gain: 0.12, lp: 800 });
         this.hiss({ filter: 'lowpass', f0: 1600, f1: 200, dur: 0.6, gain: 0.06 });

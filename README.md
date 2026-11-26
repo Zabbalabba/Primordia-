@@ -42,6 +42,10 @@ When loading, the newer of the two saves wins. When your lineage dies out, the s
 
 Saves are versioned. Version 2 belongs to cell stage 2.0; saves from the first cell stage (version 1) are not loaded, and are removed the first time the new version saves.
 
+## Opening
+
+A new lineage starts with a short cinematic (about 50 seconds, skippable) drawn live in the game's style, following one scientific account of how life began: a young, molten Earth and comets bringing water; lightning over a dark ocean; hot vents on the sea floor; molecules joining into a chain that can copy itself inside a pore of vent rock; fatty molecules folding into a bubble around that chain; protocells that grow, split and compete; and finally your first cell, with its species name (`js/intro.js`).
+
 ## Core loop
 
 1. **Swim, feed, survive.** At this scale water is thick: a cell stops the moment its motor stops, and currents carry everything. A simple cell absorbs food it touches through its membrane, or makes its own from light or sulfur.

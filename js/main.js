@@ -12,6 +12,7 @@ import { RNG, formatTime } from './util.js';
 import { BIOMES, ERAS } from './environment.js';
 import { SaveStore, deserialize } from './save.js';
 import { Audio } from './audio.js';
+import { Intro } from './intro.js';
 
 const $ = (id) => document.getElementById(id);
 const SIM_DT = 1 / 30;
@@ -153,10 +154,54 @@ function startGame() {
   state.won = false;
   state.speed = 1;
   $('btn-speed').textContent = '1×';
-  setMode('play');
-  audio.setEra(w.env.era.id);
-  hud.update(0, w, state.renderer, true);
   const start = PLAYER_STARTS[state.start];
+  playIntro(w, name, start, () => {
+    setMode('play');
+    audio.setEra(w.env.era.id);
+    hud.update(0, w, state.renderer, true);
+    beginToasts(name, start);
+  });
+}
+
+/** The opening cinematic, then the game. */
+let intro = null;
+function playIntro(w, name, start, then) {
+  const lines = {
+    shallows: 'Your lineage begins… and rises toward the sunlit shallows.',
+    vents: 'Your lineage begins… right here, by the warm vents.',
+    frigid: 'Your lineage begins… and drifts out into the cold.',
+  };
+  const box = $('screen-intro');
+  intro = new Intro(
+    { canvas: $('intro-canvas'), caption: $('intro-caption'), title: $('intro-title'), name: $('intro-name'), sub: $('intro-sub') },
+    {
+      genome: w.player.genome,
+      speciesName: name,
+      startLine: lines[state.start] || 'Your lineage begins.',
+      audio,
+      onDone: () => {
+        intro = null;
+        // Fade the cinematic out over the first moments of the game.
+        box.classList.add('leaving');
+        setTimeout(() => {
+          box.hidden = true;
+          box.classList.remove('leaving');
+        }, 1000);
+        then();
+      },
+    }
+  );
+  box.hidden = false;
+  box.classList.remove('leaving');
+  state.mode = 'intro';
+  hud.show(false);
+  $('screen-title').hidden = true;
+  audio.setEra('title');
+  intro.start();
+}
+$('intro-skip').addEventListener('click', () => intro && intro.skip());
+
+function beginToasts(name, start) {
   hud.toast(`<b>${name}</b>, a single bacterium, begins in the ${start.label.toLowerCase()}. Touch food to absorb it, grow, and divide.`, 'good', 7);
   setTimeout(() => hud.toast('You twitch along on pili: slow, but every cell around you is just as small. If the water hurts you, a red tag under your health bars says why.', '', 7), 3000);
 }
@@ -680,6 +725,13 @@ const KEYMAP = { KeyW: [0, -1], ArrowUp: [0, -1], KeyS: [0, 1], ArrowDown: [0, 1
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) return;
   const m = state.mode;
+  if (m === 'intro') {
+    if (e.code === 'Escape' || e.code === 'Enter' || e.code === 'Space') {
+      e.preventDefault();
+      intro && intro.skip();
+    }
+    return;
+  }
   if (m === 'event') {
     // The event card takes the keyboard until it is closed.
     if (e.code === 'Enter' || e.code === 'Space' || e.code === 'Escape' || e.code === 'NumpadEnter') {
@@ -967,7 +1019,7 @@ function frame(now) {
       r.cam.y = w.size / 2 + Math.sin(now / 24000) * 700;
       r.cam.span = 620;
     }
-    if (state.mode !== 'editor') {
+    if (state.mode !== 'editor' && state.mode !== 'intro') {
       r.update(simulating ? dt : 0);
       r.render();
     }
@@ -1129,4 +1181,4 @@ $('btn-install').addEventListener('click', async () => {
 });
 
 // Debug handle for the console.
-window.primordia = { state, cloneGenome, editor, saves, audio };
+window.primordia = { state, cloneGenome, editor, saves, audio, intro: () => intro };
