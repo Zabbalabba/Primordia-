@@ -190,16 +190,62 @@ export class HUD {
         .join('');
   }
 
-  toast(html, cls = '', dur = 4.5) {
-    const box = $('toasts');
-    const t = document.createElement('div');
-    t.className = `toast ${cls}`;
-    t.innerHTML = html;
-    box.appendChild(t);
-    while (box.children.length > 4) box.firstChild.remove();
-    setTimeout(() => {
-      t.classList.add('out');
-      setTimeout(() => t.remove(), 450);
-    }, dur * 1000);
+  /**
+   * Small pop-up messages. At most two are on screen; the rest wait their
+   * turn (most important first). They last a while, count down only while
+   * you are playing (see tick), and a tap dismisses one.
+   * prio: 0 = minor (skipped when busy), 1 = normal, 2 = important.
+   */
+  toast(html, cls = '', dur = 4.5, prio = 1) {
+    this.visible = this.visible || [];
+    this.queue = this.queue || [];
+    if (this.visible.some((t) => t.html === html) || this.queue.some((t) => t.html === html)) return;
+    const item = { html, cls, prio, left: Math.max(6, dur * 1.6) };
+    if (this.visible.length >= 2 && prio >= 2) {
+      // Important news pushes out a minor message instead of waiting.
+      const minor = this.visible.find((t) => t.prio <= 0);
+      if (minor) this.dismissToast(minor, true);
+    }
+    if (this.visible.length < 2) return this.showToast(item);
+    if (prio <= 0) return;
+    this.queue.push(item);
+    this.queue.sort((a, b) => b.prio - a.prio);
+    if (this.queue.length > 5) this.queue.length = 5;
   }
+
+  showToast(item) {
+    const t = document.createElement('div');
+    t.className = `toast ${item.cls}`;
+    t.innerHTML = item.html;
+    t.title = 'Tap to dismiss';
+    t.addEventListener('click', () => this.dismissToast(item));
+    $('toasts').appendChild(t);
+    item.el = t;
+    this.visible.push(item);
+  }
+
+  dismissToast(item, noRefill = false) {
+    const i = this.visible.indexOf(item);
+    if (i < 0) return;
+    this.visible.splice(i, 1);
+    item.el.classList.add('out');
+    setTimeout(() => item.el.remove(), 450);
+    if (!noRefill && this.queue.length) this.showToast(this.queue.shift());
+  }
+
+  /** Count down the visible pop-ups. Called only while the game runs. */
+  tick(dt) {
+    if (!this.visible) return;
+    for (const item of [...this.visible]) {
+      item.left -= dt;
+      if (item.left <= 0) this.dismissToast(item);
+    }
+  }
+
+  clearToasts() {
+    for (const item of this.visible || []) item.el.remove();
+    this.visible = [];
+    this.queue = [];
+  }
+
 }

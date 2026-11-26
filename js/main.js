@@ -5,7 +5,7 @@ import { Renderer } from './render.js';
 import { HUD } from './hud.js';
 import { Editor } from './editor.js';
 import { renderEco, GOALS } from './eco.js';
-import { PLAYER_STARTS, speciesName, cloneGenome } from './genome.js';
+import { PLAYER_STARTS, speciesName, cloneGenome, SYMBIONT } from './genome.js';
 import { drawCell } from './cellDraw.js';
 import { PARTS } from './parts.js';
 import { RNG, formatTime } from './util.js';
@@ -162,6 +162,7 @@ function setMode(mode) {
   $('screen-pause').hidden = mode !== 'pause';
   $('screen-over').hidden = mode !== 'over';
   $('screen-relative').hidden = mode !== 'choose';
+  $('screen-event').hidden = mode !== 'event';
   if (mode !== 'editor') editor.open_ && editor.close();
   hud.show(mode !== 'title' && mode !== 'editor');
   if (mode === 'eco') renderEco(state.world);
@@ -170,6 +171,12 @@ function setMode(mode) {
     syncAudioUI();
   }
   if (mode === 'title') refreshContinue();
+  if (mode === 'title') {
+    eventQueue.length = 0;
+    hud.clearToasts();
+  }
+  // Big events wait while you are in the editor or a menu.
+  if (mode === 'play' && eventQueue.length) showNextEvent();
 }
 
 function openHelp(from) {
@@ -256,9 +263,8 @@ function handleEvents() {
     if (state.mode === 'title') continue;
     switch (e.type) {
       case 'era':
-        audio.sfx('swell');
         audio.setEra(e.id);
-        hud.toast(`<b>New era: ${e.name}</b><br>${e.desc}`, 'era', 9);
+        bigEvent({ eyebrow: 'A new era', title: e.name, text: `${e.desc}<br><span class="muted">${ERAS[e.id].hint}</span>`, tone: '', art: { kind: 'era', id: e.id } });
         break;
       case 'vents':
         hud.toast(`<b>${e.count} new vents</b> have opened on the sea floor.`, 'era', 6);
@@ -275,7 +281,7 @@ function handleEvents() {
         hud.toast(`<b>Your ${e.from.toLowerCase()} can now evolve</b> into an ${e.to.toLowerCase()} when you next divide.`, 'gene', 6);
         break;
       case 'kill':
-        hud.toast(`You consumed a <i>${e.name}</i>.`, '', 3);
+        hud.toast(`You consumed a <i>${e.name}</i>.`, '', 3, 0);
         break;
       case 'respawn': {
         const which = { developed: 'your most developed relative', nearest: 'your nearest relative', random: 'a random relative' }[e.kind] || 'a relative';
@@ -283,7 +289,8 @@ function handleEvents() {
         hud.toast(
           `<b>You died (${e.cause}).</b> You continue as ${which}: generation ${e.generation}, ${e.euk ? 'complex' : 'simple'} cell, ${Math.round(e.distance)} µm away.`,
           'bad',
-          6
+          6,
+          2
         );
         break;
       }
@@ -296,55 +303,120 @@ function handleEvents() {
         if (playing) setTimeout(() => showOver({ cause: e.cause }), 1200);
         break;
       case 'aging':
-        hud.toast('Your cell is getting old. Divide soon to renew it.', 'bad', 5);
+        hud.toast('Your cell is getting old. Divide soon to renew it.', 'bad', 5, 2);
         break;
       case 'toxin':
         audio.sfx('toxin');
         break;
       case 'guest':
-        audio.sfx('chime');
-        if (e.kind === 'mito')
-          hud.toast('<b>An aerobic bacterium slipped inside you</b> and is living there. When you next divide, you can keep it as a partner: endosymbiosis.', 'gene', 9);
-        else hud.toast('<b>The cyanobacterium you swallowed is still alive</b> inside you. Divide to keep it as a chloroplast.', 'gene', 9);
+        if (e.kind === 'mito') {
+          if (!seen('guest-mito'))
+            bigEvent({
+              eyebrow: 'Something inside',
+              title: 'A stowaway',
+              text: 'A <i>Protomitos</i> bacterium slipped through your membrane, and you didn’t digest it. It is still alive in there, breathing. When you next divide, you will have to decide what it becomes.',
+              tone: 'wonder',
+              sound: 'chime',
+              art: { kind: 'cells', cells: [{ g: w.player.genome, guest: 'mito' }] },
+            });
+          else hud.toast('<b>A <i>Protomitos</i> bacterium is living inside you again.</b>', 'gene', 6, 2);
+        } else if (!seen('guest-cyano'))
+          bigEvent({
+            eyebrow: 'Something inside',
+            title: 'A green passenger',
+            text: 'The photosynthetic bacterium you swallowed is still alive inside you, glowing whenever light reaches it. When you divide, it could stay.',
+            tone: 'wonder',
+            sound: 'chime',
+            art: { kind: 'cells', cells: [{ g: w.player.genome, guest: 'cyano' }] },
+          });
+        else hud.toast('<b>A swallowed cyanobacterium is alive inside you.</b>', 'gene', 6, 2);
         break;
       case 'symbionts':
-        hud.toast('<b>Oxygen-breathing bacteria</b> (<i>Protomitos</i>) have appeared. They look for larger cells to live inside. Let one in.', 'era', 9);
+        if (!seen('symbionts'))
+          bigEvent({
+            eyebrow: 'A newcomer',
+            title: '<i>Protomitos</i> has arrived',
+            text: 'A tiny bacterium that breathes oxygen has drifted into the pond. It seems drawn to larger cells, and circles them for a while.<br><b>What might happen if you let one get too close?</b>',
+            tone: 'wonder',
+            art: { kind: 'cells', cells: [{ g: SYMBIONT.genome, big: true }] },
+          });
         break;
       case 'eukaryotes':
-        if (!w.progress.eukaryote) hud.toast('<b>The first complex cells</b> have evolved in the pond. Bigger hunters are coming.', 'era', 7);
+        if (!w.progress.eukaryote && !seen('eukaryotes')) {
+          const first = w.cells.find((c) => c.ph.euk && !c.isPlayer);
+          bigEvent({
+            eyebrow: 'Elsewhere in the pond',
+            title: 'Something new has evolved',
+            text: 'A cell has taken in a partner and become something far larger, with a nucleus and a skeleton of fibres inside. Some complex cells can swallow a bacterium like you whole.<br><b>How did they do it?</b>',
+            tone: 'danger',
+            art: first ? { kind: 'cells', cells: [{ g: first.genome, big: true }] } : null,
+          });
+        }
         break;
       case 'engulf':
         audio.sfx('engulf');
-        hud.toast(`You engulfed a <i>${e.name}</i>. Digesting…`, '', 3);
+        hud.toast(`You engulfed a <i>${e.name}</i>. Digesting…`, '', 3, 0);
         break;
       case 'infected':
-        audio.sfx('infect');
-        hud.toast(w.player && w.player.ph.crispr ? '<b>Infected by a virus.</b> Your CRISPR system is fighting it.' : '<b>Infected by a virus.</b> It is copying itself inside you. Rest and eat to fight it off.', 'bad', 6);
+        if (!seen('infected'))
+          bigEvent({
+            eyebrow: 'Infected',
+            title: 'A virus has hijacked your cell',
+            text: 'It is turning your cell into a factory for more of itself. Eat and keep your health up to fight it off before the timer runs out. If the virus wins, your cell bursts and releases a new swarm.',
+            tone: 'danger',
+            sound: 'infect',
+            art: { kind: 'cells', cells: [{ g: w.player.genome, infected: true }] },
+          });
+        else {
+          audio.sfx('infect');
+          hud.toast(w.player && w.player.ph.crispr ? '<b>Infected by a virus.</b> Your CRISPR system is fighting it.' : '<b>Infected by a virus.</b> Eat and rest to fight it off.', 'bad', 6, 2);
+        }
         break;
       case 'cured':
         audio.sfx('chime');
         hud.toast(e.immune ? '<b>Infection cleared.</b> CRISPR keeps a memory: you are now immune to this strain.' : '<b>Infection cleared.</b> CRISPR genes would make you immune next time.', 'good', 6);
         break;
       case 'virusStrain':
-        hud.toast('A virus strain has adapted to <b>your species</b>. Viruses target whatever is most common.', 'bad', 7);
+        hud.toast('A virus strain has adapted to <b>your species</b>. Viruses target whatever is most common.', 'bad', 7, 2);
         break;
       case 'giant':
-        audio.sfx('swell');
-        hud.toast('<b>A rotifer is here.</b> This many-celled animal sucks in everything near its mouth. Stay clear of the swirl.', 'bad', 8);
+        if (!seen('giant'))
+          bigEvent({
+            eyebrow: 'Something enormous',
+            title: 'A rotifer',
+            text: 'An animal made of about a thousand cells is moving through the water. The crown of cilia on its head stirs a whirlpool that sweeps everything near its mouth inside.<br><b>Stay out of the swirl.</b>',
+            tone: 'danger',
+            art: { kind: 'giant' },
+          });
+        else {
+          audio.sfx('swell');
+          hud.toast('<b>A rotifer is back.</b> Stay clear of its swirl.', 'bad', 7, 2);
+        }
         break;
       case 'colony':
-        audio.sfx('milestone');
-        hud.toast(`<b>Colony of ${e.size}.</b> Your daughter cell stayed attached. The colony moves as one.`, 'good', 6);
+        if (!seen('colony'))
+          bigEvent({
+            eyebrow: 'Together',
+            title: 'Your daughter stayed',
+            text: 'This time your daughter cell didn’t swim away. The two of you move as one and share your energy. Many cells working as one body: this is how every animal and plant began.<br><span class="muted">A colony of 4 completes the cell stage.</span>',
+            tone: 'wonder',
+            sound: 'milestone',
+            art: { kind: 'cells', cells: [{ g: w.player.genome, dx: -0.55 }, { g: w.player.genome, dx: 0.55 }] },
+          });
+        else {
+          audio.sfx('milestone');
+          hud.toast(`<b>Colony of ${e.size}.</b> Another daughter cell stayed attached.`, 'good', 6, 2);
+        }
         break;
       case 'cyst':
         audio.sfx('cyst');
         if (e.on) hud.toast('<b>Dormant.</b> Your cell is sealed in a cyst: almost nothing can hurt it, but it can\'t eat. Press C to wake.', '', 5);
         break;
       case 'night':
-        hud.toast('Night falls. Photosynthesis stops until morning.', '', 4);
+        hud.toast('Night falls. Photosynthesis stops until morning.', '', 4, 0);
         break;
       case 'day':
-        if (w.time > 60) hud.toast('Morning. The light returns.', '', 3);
+        if (w.time > 60) hud.toast('Morning. The light returns.', '', 3, 0);
         break;
       case 'playerHit':
         audio.sfx('hurt');
@@ -356,7 +428,7 @@ function handleEvents() {
       case 'extinction':
       case 'migration': {
         // Only mention events that involve species you could plausibly meet.
-        if (e.type === 'migration') hud.toast(e.text, '', 4);
+        if (e.type === 'migration') hud.toast(e.text, '', 4, 0);
         break;
       }
     }
@@ -387,9 +459,16 @@ function checkGoals(dt) {
 function onEditorDone(info) {
   setMode('play');
   audio.sfx('divide');
-  if (info.symbiosis === 'mito') {
-    audio.sfx('milestone');
-    hud.toast('<b>You are a complex cell now.</b> The bacterium lives on as your mitochondrion. New parts are open to you: pseudopods, cilia, food vacuoles, eyespots.', 'gene', 10);
+  if (info.symbiosis === 'mito' && !seen('complex')) {
+    const w = state.world;
+    bigEvent({
+      eyebrow: 'Endosymbiosis',
+      title: 'You are a complex cell',
+      text: `The bacterium inside you is part of you now: your first mitochondrion. Your lineage is bigger, with a nucleus and a skeleton of fibres, and new parts are open to you: cilia, pseudopods, food vacuoles and eyes.${w.eukaryotesExist && w.cells.some((c) => c.ph.euk && c.speciesId !== w.playerSpecies.id) ? '' : '<br><b>You are the first in the pond.</b>'}<br><span class="muted">About two billion years ago, this is how complex life began.</span>`,
+      tone: 'wonder',
+      sound: 'milestone',
+      art: { kind: 'cells', cells: [{ g: w.player.genome, big: true }] },
+    });
   }
   if (info.symbiosis === 'cyano') hud.toast('<b>Chloroplast acquired.</b> You can photosynthesise like an alga.', 'gene', 6);
   const parts = [];
@@ -398,6 +477,101 @@ function onEditorDone(info) {
   hud.toast(`<b>Divided.</b> Generation ${state.world.player.generation}${parts.length ? ` · ${parts.join(' · ')}` : ''}.`, 'good', 5);
   if (info.newGene) hud.toast(`${PARTS[info.newGene].name} is now part of your genome.`, 'gene', 5);
   saveGame();
+}
+
+// ---------------------------------------------------------------- big events
+
+// The most important moments pause the game with a card; each kind shows
+// once per lineage (eras every time). Smaller news uses the pop-ups.
+const eventQueue = [];
+let eventArt = null;
+let eventShownAt = 0;
+
+/** True if this kind of event was already shown in this game (and marks it). */
+function seen(id) {
+  const pr = state.world.progress;
+  const list = pr.seen || (pr.seen = []);
+  if (list.includes(id)) return true;
+  list.push(id);
+  return false;
+}
+
+function bigEvent(ev) {
+  eventQueue.push(ev);
+  if (state.mode === 'play') showNextEvent();
+}
+
+function showNextEvent() {
+  const ev = eventQueue.shift();
+  if (!ev) return;
+  $('ev-eyebrow').textContent = ev.eyebrow;
+  $('ev-title').innerHTML = ev.title;
+  $('ev-text').innerHTML = ev.text;
+  $('ev-card').className = `modal-card event-card ${ev.tone || ''}`;
+  $('ev-art').hidden = !ev.art;
+  eventArt = ev.art || null;
+  eventShownAt = performance.now();
+  audio.sfx(ev.sound || 'swell');
+  state.keys.clear();
+  state.pointer.down = false;
+  setMode('event');
+}
+
+function closeEvent() {
+  // A short grace period, so a tap meant for steering doesn't skip the card.
+  if (state.mode !== 'event' || performance.now() - eventShownAt < 600) return;
+  setMode('play');
+}
+$('ev-go').addEventListener('click', closeEvent);
+
+const ERA_GLOW = { primordial: [255, 170, 80], oxidation: [90, 220, 255], glaciation: [190, 230, 255], volcanic: [255, 90, 50], blooms: [120, 255, 120] };
+
+function drawEventArt(t) {
+  const cv = $('ev-art');
+  const W = cv.clientWidth;
+  const H = cv.clientHeight;
+  if (!eventArt || !W) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) {
+    cv.width = Math.round(W * dpr);
+    cv.height = Math.round(H * dpr);
+  }
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const a = eventArt;
+  if (a.kind === 'cells') {
+    for (const [i, c] of a.cells.entries()) {
+      const euk = c.g.domain === 'euk';
+      // A long rear tail (rotary flagellum or whip) needs room below the body.
+      const tail = c.g.parts.some((p) => (p.t === 'rotor' || p.t === 'flagellum') && Math.abs(p.a) > 2);
+      const r = tail ? H * 0.15 : c.big ? H * 0.26 : H * (euk ? 0.22 : 0.2);
+      const x = W / 2 + (c.dx || 0) * r * 2 + Math.sin(t * 0.7 + i) * 3;
+      const y = (tail ? H * 0.28 : H / 2) + Math.cos(t * 0.5 + i) * 4;
+      drawCell(ctx, c.g, r, { x, y, heading: -Math.PI / 2 + Math.sin(t * 0.4 + i) * 0.15, thrustLevel: 0.6, phase: i * 3, twitch: t * 1.7, guest: c.guest, infected: c.infected, look: -Math.PI / 2 }, t, { detail: true });
+    }
+  } else if (a.kind === 'giant') {
+    state.renderer.drawGiant(ctx, { x: W / 2, y: H * 0.58, heading: -Math.PI / 2 + Math.sin(t * 0.3) * 0.08, r: H * 0.2, feeding: true }, t);
+  } else if (a.kind === 'era') {
+    const [cr, cg, cb] = ERA_GLOW[a.id] || [61, 255, 226];
+    const pulse = 1 + 0.05 * Math.sin(t * 1.5);
+    const g = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, H * 0.6 * pulse);
+    g.addColorStop(0, `rgba(${cr}, ${cg}, ${cb}, 0.85)`);
+    g.addColorStop(0.35, `rgba(${cr}, ${cg}, ${cb}, 0.3)`);
+    g.addColorStop(1, `rgba(${cr}, ${cg}, ${cb}, 0)`);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    for (let i = 0; i < 40; i++) {
+      const ang = i * 2.399 + t * 0.15 * (i % 2 ? 1 : -1);
+      const rad = ((i * 37) % 100) / 100 * H * 0.55 + Math.sin(t + i) * 4;
+      ctx.fillStyle = `rgba(${cr}, ${cg}, ${cb}, ${0.25 + 0.5 * ((i * 13) % 10) / 10})`;
+      ctx.beginPath();
+      ctx.arc(W / 2 + Math.cos(ang) * rad * 1.6, H / 2 + Math.sin(ang) * rad, 1 + (i % 3), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
 }
 
 // ---------------------------------------------------------------- after death
@@ -496,6 +670,14 @@ const KEYMAP = { KeyW: [0, -1], ArrowUp: [0, -1], KeyS: [0, 1], ArrowDown: [0, 1
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) return;
   const m = state.mode;
+  if (m === 'event') {
+    // The event card takes the keyboard until it is closed.
+    if (e.code === 'Enter' || e.code === 'Space' || e.code === 'Escape' || e.code === 'NumpadEnter') {
+      e.preventDefault();
+      closeEvent();
+    }
+    return;
+  }
   if (KEYMAP[e.code] || e.code === 'ShiftLeft' || e.code === 'ShiftRight') state.keys.add(e.code);
   if (e.code === 'Tab') {
     e.preventDefault();
@@ -739,6 +921,7 @@ function frame(now) {
   if (w && state.mode !== 'title') {
     handleEvents();
     if (state.mode === 'play') {
+      hud.tick(dt);
       hud.update(dt, w, r);
       checkGoals(dt);
       // Autosave: locally every 20 s, to the account every minute.
@@ -759,6 +942,7 @@ function frame(now) {
       }
     }
   } else if (w) w.events.length = 0;
+  if (state.mode === 'event') drawEventArt(now / 1000);
   updateAudio(dt);
   requestAnimationFrame(frame);
 }

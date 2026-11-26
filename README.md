@@ -86,6 +86,10 @@ Photosynthesizers really do add oxygen to the water around them. A **day and nig
 
 **Eras** run about 4–5 minutes each, with transitions and a visible forecast. The first is *Primordial Warmth* (no oxygen, harsh UV), followed by the *Great Oxidation*. After that the sequence is random among *Global Glaciation*, *Volcanic Upheaval* (new vents open), *Age of Blooms* and *Oxidation*.
 
+### Events
+
+Small news appears as pop-ups: at most two at a time (more important ones first), lasting several seconds of play and pausing while you are in a menu; tap one to dismiss it. The big moments pause the game with an animated card: a new era, the arrival of *Protomitos*, a bacterium living inside you, the first complex cells, a rotifer, becoming a complex cell, your first colony and your first virus. Each card shows once per lineage (eras every time); some only hint at what to try next.
+
 ### Dangers
 
 - **Predators** at your own scale: predatory bacteria with a lytic tip, and later complex cells that bite or engulf. Nothing is hypermobile; hunters are only a little faster than their prey.

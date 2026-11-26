@@ -101,6 +101,12 @@ export function think(c, world, dt) {
   });
   c.crowd = crowd;
 
+  // Symbionts sense a suitable player cell from much farther than they can see.
+  if (symbiont && !host) {
+    const p = world.player;
+    if (p && !p.ph.euk && !p.guest && !p.cyst && p.r > c.r * 1.15 && Math.hypot(p.x - c.x, p.y - c.y) < 700) host = p;
+  }
+
   // The rotifer's feeding current: get away from its mouth.
   for (const g of world.giants) {
     if (!g.mouth) continue;
