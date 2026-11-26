@@ -455,7 +455,7 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
 .ed-changes .ch-lose b { color: var(--warn); }
 
 @media (max-width: 1000px) {
-  .editor { display: block; overflow: auto; }
+  .editor { display: block; overflow: auto; padding-bottom: 0; }
   .editor > * + * { margin-top: 12px; }
   .ed-main { grid-template-columns: 1fr; }
   .ed-canvas-wrap { height: 380px; flex: none; }
@@ -464,8 +464,10 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
   .ed-palette .cat-title { grid-column: 1 / -1; }
   /* Pinned footer: Reset and DNA on top, then what changes beside Divide. */
   .ed-foot {
-    position: sticky; bottom: 0; z-index: 5; background: #02060f; box-shadow: 0 24px 0 0 #02060f;
-    padding: 10px 0 calc(10px + env(safe-area-inset-bottom, 0px)); gap: 8px 12px;
+    /* The bar itself carries the home-bar space (the editor drops its bottom
+       padding here), so it always sits on the screen edge. */
+    position: sticky; bottom: 0; z-index: 5; background: #02060f;
+    padding: 10px 0 calc(10px + max(14px, env(safe-area-inset-bottom, 0px))); gap: 8px 12px;
     display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
     grid-template-areas: 'reset wallet wallet' 'changes changes done' 'warn warn warn';
   }
