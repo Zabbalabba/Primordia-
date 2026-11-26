@@ -118,6 +118,8 @@ function continueGame() {
   }
   setMode('play');
   audio.setEra(w.env.era.id);
+  // Saves from before the event cards: tell them about Protomitos now.
+  if (w.player && !w.player.ph.euk && w.symbiontSpecies && w.symbiontSpecies.pop > 0) w.emit('symbionts');
   hud.update(0, w, state.renderer, true);
   hud.toast(`<b>Welcome back.</b> ${w.playerSpecies ? w.playerSpecies.name : 'Your lineage'}, generation ${w.progress.generation}.`, 'good', 5);
 }
