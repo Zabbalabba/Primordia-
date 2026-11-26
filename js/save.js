@@ -157,6 +157,13 @@ export function deserialize(d) {
     biomesThrived: new Set(d.progress.biomesThrived),
     history: (d.progress.history || []).map((h) => ({ gen: h.gen, note: h.note, time: h.time, genome: unpackGenome(h.g) })),
   };
+  // Lineages that turned complex before motors were rebuilt lost their
+  // rotary flagella outright: let them buy the complex-cell kind instead.
+  {
+    const pr = world.progress;
+    const lastSimple = pr.eukaryote ? pr.history.filter((h) => h.genome.domain !== 'euk').pop() : null;
+    if (lastSimple && lastSimple.genome.parts.some((p) => p.t === 'rotor')) pr.unlocked.add('flagellum');
+  }
 
   // Species.
   const reg = world.species;

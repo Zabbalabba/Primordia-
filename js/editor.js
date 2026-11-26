@@ -165,7 +165,7 @@ export class Editor {
     b.className = 'symbiosis';
     b.setAttribute('aria-pressed', String(this.symbiosisOn));
     b.innerHTML = mito
-      ? `<span class="sym-tag">Endosymbiosis</span><span class="sym-title">Keep the aerobic bacterium as a partner</span><span class="sym-text">It becomes your first mitochondrion, and your lineage becomes a <b>complex cell</b>: larger, with a nucleus, a cytoskeleton and new parts (pseudopods, cilia, food vacuoles, eyes). Bacterial pili are lost; a free patch of cilia keeps you moving. This is how complex life began, about two billion years ago.</span>`
+      ? `<span class="sym-tag">Endosymbiosis</span><span class="sym-title">Keep the aerobic bacterium as a partner</span><span class="sym-text">It becomes your first mitochondrion, and your lineage becomes a <b>complex cell</b>: larger, with a nucleus, a cytoskeleton and new parts (pseudopods, cilia, food vacuoles, eyes). Your pili and bacterial flagella are rebuilt the complex-cell way, as cilia and whip-like flagella, for free. This is how complex life began, about two billion years ago.</span>`
       : `<span class="sym-tag">Endosymbiosis</span><span class="sym-title">Keep the cyanobacterium as a chloroplast</span><span class="sym-text">The photosynthetic bacterium you swallowed survived. Kept as a partner, it becomes a chloroplast: strong photosynthesis, as in all algae and plants.</span>`;
     const state = document.createElement('span');
     state.className = 'sym-state';
@@ -1214,6 +1214,9 @@ export class Editor {
     const o = this.offers[this.chosen];
     let newGene = null;
     const gene = o ? (o.kind === 'part' ? o.part : o.kind === 'upgrade' ? o.to : null) : null;
+    // Parts that came with a new partner (the mitochondrion, rebuilt motors)
+    // can be bought freely from now on.
+    for (const p of this.draft.parts) if (p.o === 'sym' && !PARTS[p.t].symbiont) world.progress.unlocked.add(p.t);
     if (gene && !world.progress.unlocked.has(gene)) {
       world.progress.unlocked.add(gene);
       newGene = gene;

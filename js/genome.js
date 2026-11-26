@@ -326,13 +326,23 @@ export function eukaryotize(g, rng = null) {
   m.size = Math.max(1.35, m.size * 1.8);
   m.shape = 0;
   m.membrane = Math.max(m.membrane, 0.2);
-  // Twitching pili and bacterial flagella are lost; transporters stay.
+  const pili = m.parts.filter((p) => p.t === 'pili');
+  const rotors = m.parts.filter((p) => p.t === 'rotor');
+  // Bacterial pili and rotary flagella don't carry over; transporters stay.
   m.parts = m.parts.filter((p) => partAllowed(p.t, 'euk'));
   m.parts.push({ t: 'mitochondrion', a: 0 });
-  if (!rng && !hasMotor(m)) {
-    // The player's new complex cell keeps moving: a patch of cilia replaces
-    // the bacterial pili and flagella it lost.
-    if (canAddPart(m, 'cilia')) m.parts.push({ t: 'cilia', a: placeAngleFor('cilia', m) });
+  if (!rng) {
+    // The player's motors are rebuilt the complex-cell way, so the new body
+    // swims about as well as the old one (mitochondria power the new motors):
+    // every two pili become a patch of cilia, and every two rotary flagella
+    // (rounding up) a whip-like flagellum.
+    for (let i = 0; i < Math.ceil(pili.length / 2); i++) {
+      if (canAddPart(m, 'cilia')) m.parts.push({ t: 'cilia', a: pili[i * 2].a });
+    }
+    for (let i = 0; i < Math.ceil(rotors.length / 2); i++) {
+      if (canAddPart(m, 'flagellum')) m.parts.push({ t: 'flagellum', a: rotors[i * 2].a });
+    }
+    if (!hasMotor(m) && canAddPart(m, 'cilia')) m.parts.push({ t: 'cilia', a: placeAngleFor('cilia', m) });
   }
   if (rng) {
     // AI lineages pick up a way of eating and moving that suits a complex cell.

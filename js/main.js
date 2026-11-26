@@ -50,7 +50,15 @@ function makeAttractWorld() {
 function setWorld(w) {
   state.world = w;
   w.respawnMode = respawnMode;
-  if (!state.renderer) state.renderer = new Renderer(canvas, w);
+  if (!state.renderer) {
+    state.renderer = new Renderer(canvas, w);
+    try {
+      const z = Number(localStorage.getItem('primordia.zoom'));
+      if (z >= 0.45 && z <= 2.5) state.renderer.userZoom = z;
+    } catch {
+      /* default zoom */
+    }
+  }
   else {
     state.renderer.world = w;
     state.renderer.buildBackground();
@@ -713,29 +721,73 @@ window.addEventListener('blur', () => {
   state.pointer.down = false;
 });
 
+// One finger (or the mouse) steers; two fingers pinch to zoom.
+const touches = new Map();
+let pinch = null;
+const ZOOM_KEY = 'primordia.zoom';
+function setUserZoom(z) {
+  const r = state.renderer;
+  if (!r) return;
+  r.userZoom = Math.min(2.5, Math.max(0.45, z));
+  clearTimeout(setUserZoom.t);
+  setUserZoom.t = setTimeout(() => {
+    try {
+      localStorage.setItem(ZOOM_KEY, String(r.userZoom));
+    } catch {
+      /* not critical */
+    }
+  }, 400);
+}
+function pinchDist() {
+  const [a, b] = [...touches.values()];
+  return Math.hypot(a.x - b.x, a.y - b.y) || 1;
+}
 canvas.addEventListener('pointerdown', (e) => {
   if (state.mode !== 'play') return;
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  try {
+    canvas.setPointerCapture?.(e.pointerId);
+  } catch {
+    /* capture is a nicety */
+  }
+  if (touches.size === 2) {
+    // Second finger: stop steering and zoom instead.
+    state.pointer.down = false;
+    pinch = { d: pinchDist(), zoom: state.renderer.userZoom };
+    return;
+  }
+  if (pinch) return;
   state.pointer.down = true;
   state.pointer.id = e.pointerId;
   state.pointer.x = e.clientX;
   state.pointer.y = e.clientY;
-  canvas.setPointerCapture?.(e.pointerId);
 });
 canvas.addEventListener('pointermove', (e) => {
+  if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch && touches.size >= 2) {
+    setUserZoom((pinch.zoom * pinchDist()) / pinch.d);
+    return;
+  }
+  if (pinch) return;
   state.pointer.x = e.clientX;
   state.pointer.y = e.clientY;
   state.pointer.inside = true;
 });
-canvas.addEventListener('pointerup', () => (state.pointer.down = false));
-canvas.addEventListener('pointercancel', () => (state.pointer.down = false));
+const liftPointer = (e) => {
+  touches.delete(e.pointerId);
+  if (e.pointerId === state.pointer.id) state.pointer.down = false;
+  // Steering resumes only once every finger is lifted after a pinch.
+  if (touches.size === 0) pinch = null;
+};
+canvas.addEventListener('pointerup', liftPointer);
+canvas.addEventListener('pointercancel', liftPointer);
 canvas.addEventListener('pointerleave', () => (state.pointer.inside = false));
 canvas.addEventListener(
   'wheel',
   (e) => {
     if (!state.renderer) return;
     e.preventDefault();
-    const r = state.renderer;
-    r.userZoom = Math.min(2.5, Math.max(0.45, r.userZoom * Math.exp(-e.deltaY * 0.0012)));
+    setUserZoom(state.renderer.userZoom * Math.exp(-e.deltaY * 0.0012));
   },
   { passive: false }
 );

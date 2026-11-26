@@ -126,7 +126,12 @@ export class Renderer {
       // Zoom out a little for big cells and for long sight.
       // Frame what the cell can sense, and a bit more for big cells: the view
       // widens as sight evolves.
-      const target = clamp(Math.max(maxRange(p) * 2.15, p.r * 26), 170, 640);
+      // On small screens the cell must stay a readable size, so the view
+      // only widens as far as that allows (radius at least ~14 px).
+      const minDim = Math.min(this.w, this.h) || 400;
+      const minR = Math.max(14, minDim * 0.03);
+      const maxSpan = Math.max(170, (minDim * p.r) / minR);
+      const target = clamp(Math.max(maxRange(p) * 2.15, p.r * 26), 170, Math.min(640, maxSpan));
       this.cam.span += (target - this.cam.span) * (1 - Math.exp(-dt * 1.5));
     }
   }
