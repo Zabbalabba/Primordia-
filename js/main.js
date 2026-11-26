@@ -155,7 +155,7 @@ function startGame() {
   state.speed = 1;
   $('btn-speed').textContent = '1×';
   const start = PLAYER_STARTS[state.start];
-  playIntro(w, name, start, () => {
+  playIntro(w.player.genome, name, () => {
     setMode('play');
     audio.setEra(w.env.era.id);
     hud.update(0, w, state.renderer, true);
@@ -165,7 +165,7 @@ function startGame() {
 
 /** The opening cinematic, then the game. */
 let intro = null;
-function playIntro(w, name, start, then) {
+function playIntro(genome, name, then) {
   const lines = {
     shallows: 'Your lineage begins… and rises toward the sunlit shallows.',
     vents: 'Your lineage begins… right here, by the warm vents.',
@@ -175,7 +175,7 @@ function playIntro(w, name, start, then) {
   intro = new Intro(
     { canvas: $('intro-canvas'), caption: $('intro-caption'), title: $('intro-title'), name: $('intro-name'), sub: $('intro-sub') },
     {
-      genome: w.player.genome,
+      genome,
       speciesName: name,
       startLine: lines[state.start] || 'Your lineage begins.',
       audio,
@@ -200,6 +200,12 @@ function playIntro(w, name, start, then) {
   intro.start();
 }
 $('intro-skip').addEventListener('click', () => intro && intro.skip());
+// Watch the opening from the title screen without starting a new lineage.
+$('btn-watch-intro').addEventListener('click', () => {
+  const g = PLAYER_STARTS[state.start].genome;
+  const name = $('species-input').value.trim() || speciesName(g, new RNG());
+  playIntro(g, name, () => setMode('title'));
+});
 
 function beginToasts(name, start) {
   hud.toast(`<b>${name}</b>, a single bacterium, begins in the ${start.label.toLowerCase()}. Touch food to absorb it, grow, and divide.`, 'good', 7);

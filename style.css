@@ -595,3 +595,10 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
 .intro-title p { margin: 8px 0 0; font-size: clamp(14px, 3.8vw, 17px); color: var(--ink-dim); letter-spacing: 0.04em; }
 .intro-skip { position: absolute; top: calc(14px + env(safe-area-inset-top, 0px)); right: max(14px, env(safe-area-inset-right, 0px)); opacity: 0.75; }
 .intro-skip:hover { opacity: 1; }
+
+.watch-intro {
+  display: inline-flex; align-items: center; gap: 8px; margin: -4px 0 14px; padding: 6px 12px; cursor: pointer;
+  font: 600 13px var(--font-body); color: var(--accent); background: transparent; border: 1px solid rgba(61, 255, 226, 0.35); border-radius: 999px;
+}
+.watch-intro:hover { background: rgba(61, 255, 226, 0.08); }
+.watch-intro span { font-size: 10px; }
