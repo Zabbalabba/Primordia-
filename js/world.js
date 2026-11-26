@@ -157,6 +157,18 @@ export class World {
     this._tmpEnv = {};
   }
 
+  /**
+   * A new lineage gets going quickly: its first divisions need much less
+   * energy (the first cell divides within half a minute or so, the second
+   * soon after), and relatives multiply faster while the lineage is tiny.
+   */
+  founderBoost(c) {
+    const sp = this.playerSpecies;
+    if (!sp || c.speciesId !== sp.id) return 1;
+    if (c.isPlayer) return c.generation <= 1 ? 1.5 : c.generation === 2 ? 1.8 : c.generation === 3 ? 1.4 : 1;
+    return sp.pop < 4 ? 2 : sp.pop < 7 ? 1.4 : 1;
+  }
+
   get diff() {
     return DIFFICULTY[this.difficulty] || DIFFICULTY.easy;
   }
@@ -185,6 +197,7 @@ export class World {
 
   spawnPlayer(startKey, speciesName = null) {
     const start = PLAYER_STARTS[startKey] || PLAYER_STARTS.shallows;
+    this.progress.startKey = startKey;
     for (const u of start.unlocks || []) this.progress.unlocked.add(u);
     const sp = this.species.create({ name: speciesName, genome: start.genome, isPlayer: true });
     this.playerSpecies = sp;
@@ -203,12 +216,10 @@ export class World {
       }
     }
     this.viruses = this.viruses.filter((v) => Math.hypot(v.x - p.x, v.y - p.y) > 300);
-    const c = this.addCell(cloneGenome(start.genome), sp.id, p.x, p.y, { energy: 25, growth: 6, age: 0 });
+    // Life starts with a single cell: no relatives until it divides.
+    const c = this.addCell(cloneGenome(start.genome), sp.id, p.x, p.y, { energy: startPh.maxEnergy * 0.45, growth: 0, age: 0 });
     c.isPlayer = true;
     this.player = c;
-    for (let i = 0; i < 3; i++) {
-      this.addCell(cloneGenome(start.genome), sp.id, p.x + this.rng.float(-50, 50), p.y + this.rng.float(-50, 50), { age: 0, growth: 0 });
-    }
     this.progress.history = [{ gen: 1, genome: cloneGenome(start.genome), note: 'First cell', time: 0 }];
     this.species.recount();
     return c;
@@ -558,14 +569,20 @@ export class World {
     }
     // Surplus energy becomes growth toward division (colony members don't divide).
     const reserve = ph.maxEnergy * 0.4;
+    const boost = this.founderBoost(c);
     if (!c.attachedTo && !c.cyst && c.energy > reserve && c.growth < ph.growthNeeded) {
-      const tr = Math.min(c.energy - reserve, (0.5 + 0.6 * Math.sqrt(area)) * dt * (c.isPlayer ? this.diff.playerGrowth : 1));
-      c.growth += tr;
+      const tr = Math.min(c.energy - reserve, (0.5 + 0.6 * Math.sqrt(area)) * dt * (c.isPlayer ? this.diff.playerGrowth : 1) * Math.sqrt(boost));
+      c.growth = Math.min(ph.growthNeeded, c.growth + tr * boost);
       c.energy -= tr;
     }
     if (c.energy > ph.maxEnergy) {
-      if (!c.attachedTo) c.growth = Math.min(ph.growthNeeded, c.growth + (c.energy - ph.maxEnergy) * 0.8);
+      if (!c.attachedTo) c.growth = Math.min(ph.growthNeeded, c.growth + (c.energy - ph.maxEnergy) * 0.8 * boost);
       c.energy = ph.maxEnergy;
+    }
+    // The founding cell, and its first daughter generation, grow on a clock
+    // as well, so the first two divisions come reliably soon (while fed).
+    if (c.isPlayer && c.generation <= 2 && !c.cyst && c.energy > ph.maxEnergy * 0.08) {
+      c.growth = Math.min(ph.growthNeeded, c.growth + (ph.growthNeeded * dt) / (c.generation <= 1 ? 28 : 55));
     }
     if (c.age > c.lifespan * (c.isPlayer ? 1.6 : 1) && !c.cyst) {
       c.hp = 0;
@@ -1320,6 +1337,9 @@ export class World {
     this.emit('playerDied', { cause: c.cause || 'unknown' });
     const pending = { dead: c, cause: c.cause || 'unknown', x: c.x, y: c.y };
     const rel = this.relatives(pending);
+    // The very first cell died before it ever divided: life gets another try
+    // nearby, instead of the game ending before it began.
+    if (!rel.length && this.progress.divisions === 0) return this.refound(c);
     if (!rel.length) return this.lineageExtinct(pending);
     // Ask the player which relative to continue as, unless there is only one
     // (or they chose a standing answer, or nobody is playing).
@@ -1329,6 +1349,32 @@ export class World {
     this.player = null;
     this.pendingRespawn = pending;
     this.emit('chooseRelative');
+  }
+
+  /** A new founding cell, in safe water of the starting habitat. */
+  refound(dead) {
+    const start = PLAYER_STARTS[this.progress.startKey] || PLAYER_STARTS.shallows;
+    const ph = phenotype(dead.genome);
+    let p = { x: dead.x, y: dead.y };
+    for (let i = 0; i < 60; i++) {
+      const q = this.env.randomPointIn(start.biome, this.rng);
+      if (envStress(ph, this.env.sample(q.x, q.y, {})).total <= 0 && Math.hypot(q.x - dead.x, q.y - dead.y) < 900) {
+        p = q;
+        break;
+      }
+    }
+    for (const o of this.cells) {
+      if ((o.ph.bite > 0 || o.ph.lytic > 0 || o.ph.engulf) && Math.hypot(o.x - p.x, o.y - p.y) < 250) {
+        const q = this.env.randomPointIn('twilight', this.rng);
+        o.x = q.x;
+        o.y = q.y;
+      }
+    }
+    const c = this.addCell(cloneGenome(dead.genome), dead.speciesId, p.x, p.y, { energy: ph.maxEnergy * 0.6, growth: dead.growth * 0.5, age: 0 });
+    c.isPlayer = true;
+    this.player = c;
+    this.emit('refound', { cause: dead.cause || 'unknown' });
+    return c;
   }
 
   /** Living members of the dead player's lineage. */

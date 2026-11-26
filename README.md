@@ -57,7 +57,7 @@ A new lineage starts with a short cinematic (about 50 seconds, skippable) drawn 
    - **Endosymbiosis**, when a bacterium is living inside you (see below).
    - **Live stats and a habitat forecast** for now and the next era.
    - **A cell must be able to move to divide.** The Divide button stays off until the new body has a way to move (pili or a rotary flagellum for simple cells; cilia, pseudopods or a flagellum for complex ones), and the last way to move can't be removed. A cell that somehow can't move is always offered a free one as a mutation.
-4. **Your lineage persists.** Each division adds a sibling. If you die you continue as the nearest relative (a colony member first). If every member dies, the lineage is extinct.
+4. **Your lineage persists.** You begin as a single cell; the first two divisions come quickly (about 20 and 40 seconds) so a small population can form, and relatives multiply faster while the lineage is tiny. If that very first cell dies before it ever divides, life starts again nearby. Each division adds a sibling. If you die you continue as the nearest relative (a colony member first). If every member dies, the lineage is extinct.
 
 The stage is complete when your lineage forms a **colony of 4**. Milestones along the way are grouped by chapter in the ecosystem view, next to a timeline of every body your lineage has had.
 

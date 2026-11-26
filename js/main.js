@@ -209,7 +209,7 @@ $('btn-watch-intro').addEventListener('click', () => {
 
 function beginToasts(name, start) {
   hud.toast(`<b>${name}</b>, a single bacterium, begins in the ${start.label.toLowerCase()}. Touch food to absorb it, grow, and divide.`, 'good', 7);
-  setTimeout(() => hud.toast('You twitch along on pili: slow, but every cell around you is just as small. If the water hurts you, a red tag under your health bars says why.', '', 7), 3000);
+  setTimeout(() => hud.toast('You twitch along on pili: slow, but every cell around you is just as small. If the water hurts you, a red tag under your health bars says why.', '', 7, 0), 3000);
 }
 
 // ---------------------------------------------------------------- screens
@@ -332,7 +332,7 @@ function handleEvents() {
         break;
       case 'ready':
         audio.sfx('chime');
-        hud.toast('<b>Ready to divide.</b> Press R or tap Divide.', 'good', 5);
+        hud.toast('<b>Ready to divide.</b> Press R or tap Divide.', 'good', 5, 2);
         break;
       case 'gene':
         audio.sfx('gene');
@@ -355,6 +355,12 @@ function handleEvents() {
         );
         break;
       }
+      case 'refound':
+        audio.sfx('chime');
+        state.renderer.cam.x = w.player.x;
+        state.renderer.cam.y = w.player.y;
+        hud.toast(`<b>Your first cell died (${e.cause})</b> before it could divide. Chemistry gives life another try nearby.`, 'bad', 7, 2);
+        break;
       case 'chooseRelative':
         audio.sfx('death');
         showRelativeChoice();
